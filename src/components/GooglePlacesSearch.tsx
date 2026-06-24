@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, MapPin, Globe } from 'lucide-react';
+import { getApiUrl } from '../utils/api';
 
 interface GooglePlacesSearchProps {
   onPlaceSelect: (place: { title: string; description: string; estimatedCost?: number; lat?: number; lon?: number }) => void;
@@ -33,7 +34,7 @@ export default function GooglePlacesSearch({
       const searchQuery = biasDestination ? `${query}, ${biasDestination}` : query;
       
       fetch(
-        `/api/places/search?q=${encodeURIComponent(searchQuery)}&limit=8`
+        getApiUrl(`/api/places/search?q=${encodeURIComponent(searchQuery)}&limit=8`)
       )
         .then((res) => res.json())
         .then((data) => {

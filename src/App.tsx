@@ -47,6 +47,7 @@ import InsightsTab from './components/InsightsTab';
 import ChatTab from './components/ChatTab';
 import GooglePlacesSearch from './components/GooglePlacesSearch';
 import MiniOSMMap from './components/MiniOSMMap';
+import { getApiUrl } from './utils/api';
 
 // Get date strings list between startDate and endDate
 function getDatesInRange(startDateStr: string, endDateStr: string): string[] {
@@ -408,7 +409,7 @@ export default function App() {
 
       setDestLoading(true);
       fetch(
-        `/api/places/search?q=${encodeURIComponent(newTripForm.destination)}&limit=5`
+        getApiUrl(`/api/places/search?q=${encodeURIComponent(newTripForm.destination)}&limit=5`)
       )
         .then((res) => res.json())
         .then((data) => {
@@ -464,7 +465,7 @@ export default function App() {
         : newTripForm.accommodationName;
 
       fetch(
-        `/api/places/search?q=${encodeURIComponent(query)}&limit=5`
+        getApiUrl(`/api/places/search?q=${encodeURIComponent(query)}&limit=5`)
       )
         .then((res) => res.json())
         .then((data) => {
@@ -720,7 +721,7 @@ export default function App() {
       // Extract existing titles to exclude
       const addedSpots = initialItinerary.map(item => item.title);
 
-      const response = await fetch('/api/gemini/suggest-itinerary', {
+      const response = await fetch(getApiUrl('/api/gemini/suggest-itinerary'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -867,7 +868,7 @@ export default function App() {
     setAnalyzingPersonality(true);
     setPersonality(null);
     try {
-      const response = await fetch('/api/gemini/personality', {
+      const response = await fetch(getApiUrl('/api/gemini/personality'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trip: activeTrip }),
@@ -886,7 +887,7 @@ export default function App() {
     setGeneratingRecap(true);
     setRecapText(null);
     try {
-      const response = await fetch('/api/gemini/recap', {
+      const response = await fetch(getApiUrl('/api/gemini/recap'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trip: activeTrip }),
@@ -915,7 +916,7 @@ export default function App() {
 
     try {
       const updatedHistory = [...chatMessages, { role: 'user', content: userMsg }];
-      const response = await fetch('/api/gemini/chat', {
+      const response = await fetch(getApiUrl('/api/gemini/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

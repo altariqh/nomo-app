@@ -4,6 +4,7 @@
  */
 
 import express from 'express';
+import cors from 'cors';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -15,6 +16,7 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+app.use(cors()); // Allow cross-origin requests from Capacitor/mobile webviews
 app.use(express.json());
 
 // Robust JSON extractor to handle any potential markdown blocks or trailing/leading conversational outputs

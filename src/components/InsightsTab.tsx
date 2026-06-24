@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, RefreshCw, Star, AlertCircle, Compass, Heart, X, MapPin, Plus, Trash2, RotateCcw, Check, Navigation, ChevronLeft, ChevronRight, ZoomIn } from 'lucide-react';
 import { Trip, CommunityReview, ItineraryItem } from '../types';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
+import { getApiUrl } from '../utils/api';
 
 interface ScoutCardComment {
   author: string;
@@ -194,7 +195,7 @@ export default function InsightsTab({
     setScoutCards([]);
 
     try {
-      const response = await fetch('/api/gemini/scout-cards', {
+      const response = await fetch(getApiUrl('/api/gemini/scout-cards'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

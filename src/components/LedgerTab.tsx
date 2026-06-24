@@ -4,6 +4,7 @@ import { Trip, ItineraryItem, PaymentMethod, ExpenseEntry, EmotionalTag, Expense
 import { EMOTIONAL_EMOJIS } from '../mockData';
 import GooglePlacesSearch from './GooglePlacesSearch';
 import MiniOSMMap from './MiniOSMMap';
+import { getApiUrl } from '../utils/api';
 
 // Get date strings list between startDate and endDate
 function getDatesInRange(startDateStr: string, endDateStr: string): string[] {
@@ -589,7 +590,7 @@ export default function LedgerTab({
       activeBalancesMap[rc.id] = rc.balance || 0;
     });
 
-    fetch('/api/payment/charge', {
+    fetch(getApiUrl('/api/payment/charge'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -700,7 +701,7 @@ export default function LedgerTab({
     setIsConnectingCard(true);
     setCardError(null);
 
-    fetch('/api/payment/connect-card', {
+    fetch(getApiUrl('/api/payment/connect-card'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -817,7 +818,7 @@ export default function LedgerTab({
       activeBalancesMap[rc.id] = rc.balance || 0;
     });
 
-    fetch('/api/payment/charge', {
+    fetch(getApiUrl('/api/payment/charge'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
