@@ -1,0 +1,8 @@
+{
+  "appId": "com.nomoscout.app",
+  "appName": "Nomo Scout",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

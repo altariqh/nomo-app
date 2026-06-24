@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Nomo",
+  "description": "An aesthetic mobile-first AI travel companion documenting travel spending, emotions, and memories through visual scrapbook panels, music, mood, habit logs, expense splitting, and AI memory recaps.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
