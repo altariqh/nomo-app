@@ -17,6 +17,7 @@ import {
   Check, 
   ChevronLeft, 
   ChevronRight, 
+  ChevronDown,
   MessageSquare, 
   BarChart2, 
   Coffee, 
@@ -33,21 +34,22 @@ import {
   AlertCircle,
   Wallet,
   Share2,
-  Home
+  Home,
+  Trophy
 } from 'lucide-react';
 import { MOCK_TRIPS, STOCK_COVERS, EMOTIONAL_EMOJIS, INSTANT_HABITS, SEED_COMMUNITY_REVIEWS } from './mockData';
 import { Trip, ExpenseEntry, ExpenseCategory, EmotionalTag, TravelPersonality, CommunityReview, PaymentMethod } from './types';
 import ReactMarkdown from 'react-markdown';
 import SignupScreen from './components/SignupScreen';
 import OnboardingScreen from './components/OnboardingScreen';
-import ProfileSettingsModal from './components/ProfileSettingsModal';
+import ProfileTab from './components/ProfileTab';
 import JournalTab from './components/JournalTab';
 import LedgerTab from './components/LedgerTab';
 import InsightsTab from './components/InsightsTab';
-import ChatTab from './components/ChatTab';
 import GooglePlacesSearch from './components/GooglePlacesSearch';
-import MiniOSMMap from './components/MiniOSMMap';
 import { getApiUrl } from './utils/api';
+import { getCityTheme } from './utils/cityThemes';
+import { generatePresetItinerary } from './utils/itineraryPresets';
 
 // Get date strings list between startDate and endDate
 function getDatesInRange(startDateStr: string, endDateStr: string): string[] {
@@ -66,6 +68,20 @@ function getDatesInRange(startDateStr: string, endDateStr: string): string[] {
     safetyCount++;
   }
   return dates;
+}
+
+function formatTime12h(timeStr?: string): string {
+  if (!timeStr) return 'TBA';
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (match) {
+    let hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    if (hours === 0) hours = 12;
+    return `${hours}:${minutes} ${ampm}`;
+  }
+  return timeStr;
 }
 
 // Sound synthesis output helper
@@ -105,6 +121,30 @@ function playNomoChords(moodName: string) {
     });
   } catch (e) {
     console.warn('Audio Context creation blocked by browser ambient layout restriction.', e);
+  }
+}
+
+function playSuccessChime() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const freqs = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99]; // ascending C major arpeggio
+    freqs.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gainNode.gain.setValueAtTime(0, ctx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.04, ctx.currentTime + idx * 0.08);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.5 + idx * 0.1);
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 2.0);
+    });
+  } catch (e) {
+    console.warn(e);
   }
 }
 
@@ -368,6 +408,7 @@ export default function App() {
 
   // New trip page & list states
   const [isCreatingTrip, setIsCreatingTrip] = useState(false);
+  const [showCreationSuccess, setShowCreationSuccess] = useState(false);
   const [showTripListModal, setShowTripListModal] = useState(false);
   const [newTripForm, setNewTripForm] = useState({
     name: '',
@@ -388,9 +429,10 @@ export default function App() {
   const [recommendationPinpoint, setRecommendationPinpoint] = useState<{ name: string; lat: number; lon: number } | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [journeyToDelete, setJourneyToDelete] = useState<Trip | null>(null);
 
   // Destination auto-suggest states
-  const [destPredictions, setDestPredictions] = useState<Array<{ id: string; title: string; description: string }>>([]);
+  const [destPredictions, setDestPredictions] = useState<Array<{ id: string; title: string; description: string; lat?: number; lon?: number }>>([]);
   const [destLoading, setDestLoading] = useState(false);
   const [destFocused, setDestFocused] = useState(false);
   const destDropdownRef = useRef<HTMLDivElement>(null);
@@ -408,10 +450,17 @@ export default function App() {
       if (isExactMatch) return;
 
       setDestLoading(true);
-      fetch(
-        getApiUrl(`/api/places/search?q=${encodeURIComponent(newTripForm.destination)}&limit=5`)
-      )
-        .then((res) => res.json())
+      const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(newTripForm.destination)}&limit=5`);
+      console.log(`[DestinationSearch] Requesting location search from URL: ${url}`);
+
+      fetch(url)
+        .then((res) => {
+          console.log(`[DestinationSearch] Response status received: ${res.status}`);
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+          return res.json();
+        })
         .then((data) => {
           if (Array.isArray(data)) {
             const parsed = data.map((item: any, index: number) => {
@@ -432,8 +481,16 @@ export default function App() {
           }
         })
         .catch((err) => {
-          console.error("Error searching via geocoding proxy:", err);
-          setDestPredictions([]);
+          console.error("[DestinationSearch] Error searching via geocoding proxy:", err.message || err);
+          setDestPredictions([
+            {
+              id: 'err-dest-conn',
+              title: '⚠️ Connection Error',
+              description: 'Could not connect to location lookup. Check internet connection.',
+              lat: 0,
+              lon: 0
+            }
+          ]);
         })
         .finally(() => {
           setDestLoading(false);
@@ -464,10 +521,20 @@ export default function App() {
         ? `${newTripForm.accommodationName}, ${newTripForm.destination.split(',')[0]}`
         : newTripForm.accommodationName;
 
-      fetch(
-        getApiUrl(`/api/places/search?q=${encodeURIComponent(query)}&limit=5`)
-      )
-        .then((res) => res.json())
+      const latParam = newTripForm.latitude ? `&lat=${encodeURIComponent(newTripForm.latitude)}` : '';
+      const lonParam = newTripForm.longitude ? `&lon=${encodeURIComponent(newTripForm.longitude)}` : '';
+
+      const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(query)}${latParam}${lonParam}&limit=5`);
+      console.log(`[AccomSearch] Requesting accommodation search from URL: ${url}`);
+
+      fetch(url)
+        .then((res) => {
+          console.log(`[AccomSearch] Response status received: ${res.status}`);
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+          return res.json();
+        })
         .then((data) => {
           if (Array.isArray(data)) {
             const parsed = data.map((item: any, index: number) => {
@@ -488,8 +555,16 @@ export default function App() {
           }
         })
         .catch((err) => {
-          console.error("Error searching lodging via proxy:", err);
-          setAccomPredictions([]);
+          console.error("[AccomSearch] Error searching lodging via proxy:", err.message || err);
+          setAccomPredictions([
+            {
+              id: 'err-accom-conn',
+              title: '⚠️ Connection Error',
+              description: 'Could not connect to lodging lookup. Check internet connection.',
+              lat: 0,
+              lon: 0
+            }
+          ]);
         })
         .finally(() => {
           setAccomLoading(false);
@@ -497,7 +572,7 @@ export default function App() {
     }, 400);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [newTripForm.accommodationName, newTripForm.destination]);
+  }, [newTripForm.accommodationName, newTripForm.destination, newTripForm.latitude, newTripForm.longitude]);
 
   // Auto-detect currency when destination changes
   useEffect(() => {
@@ -565,7 +640,7 @@ export default function App() {
   // Visual/Audio extras
   const [isPlayingVinyl, setIsPlayingVinyl] = useState(false);
   const [vinylDegrees, setVinylDegrees] = useState(0);
-  const [activeTab, setActiveTab] = useState<'journal' | 'ledger' | 'insights' | 'chat'>('journal');
+  const [activeTab, setActiveTab] = useState<'journal' | 'ledger' | 'insights' | 'profile'>('journal');
 
   // Feature walk-through tour state (only triggers first time)
   const [tourStep, setTourStep] = useState<number | null>(() => {
@@ -584,7 +659,7 @@ export default function App() {
     } else if (tourStep === 3) {
       setActiveTab('insights');
     } else if (tourStep === 4) {
-      setActiveTab('chat');
+      setActiveTab('profile');
     }
   }, [tourStep]);
 
@@ -681,6 +756,8 @@ export default function App() {
     setTrips(prev => [newTrip, ...prev]);
     setActiveTripId(newTrip.id);
     setIsCreatingTrip(false);
+    setShowCreationSuccess(true);
+    try { playSuccessChime(); } catch(e) {}
     setNewTripStep(1);
     setPlannerDayIndex(0);
     setInitialItinerary([]);
@@ -1012,15 +1089,15 @@ export default function App() {
       {/* Background aesthetics for desktop */}
       <div className="absolute top-8 left-12 hidden xl:flex flex-col text-left">
         <h1 className="text-4xl font-serif italic text-[#5A5A40] tracking-tight font-bold">nomo.</h1>
-        <p className="text-[10px] font-mono uppercase tracking-widest text-[#A8A29E] font-bold mt-1">Aesthetic Solitary Travel Companion</p>
+        <p className="text-[10px] font-mono uppercase tracking-widest text-[#A8A29E] font-bold mt-1">Travel Companion & Scrapbook</p>
         <div className="mt-6 bg-white p-4 rounded-2xl border border-[#FAF8F5] max-w-[240px] shadow-sm text-[10px] space-y-2">
-          <p className="font-serif italic text-stone-700">"Wander slowly. Trace café lattes, subway trains, or vintage bookstore purchases alongside your active mood flow spectrum."</p>
-          <p className="font-mono text-stone-400 font-bold">Designed mobile-first. Interactive WebAudio synth is responsive.</p>
+          <p className="font-serif italic text-stone-700">"Wander slowly. Log cafe lattes, local trains, and vintage bookstore finds alongside your travel memories."</p>
+          <p className="font-mono text-stone-400 font-bold">Designed mobile-first. Interactive WebAudio feedback is enabled.</p>
         </div>
       </div>
 
       {/* Main simulated phone containment chassis */}
-      <div className="relative w-full max-w-[420px] min-h-screen sm:min-h-[810px] sm:h-[810px] bg-white sm:rounded-[44px] sm:shadow-2xl sm:border-[10px] sm:border-[#3C3836] flex flex-col justify-between overflow-hidden">
+      <div className="relative w-full max-w-[420px] h-screen max-h-screen sm:h-[810px] sm:max-h-[810px] bg-white sm:rounded-[44px] sm:shadow-2xl sm:border-[10px] sm:border-[#3C3836] flex flex-col justify-between overflow-hidden">
         
         {/* Dynamic Island camera punch hole inside simulated phone chassis */}
         <div className="hidden sm:flex absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-[#3C3836] rounded-b-2xl z-50 items-center justify-center">
@@ -1055,19 +1132,8 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
-                        const targetId = activeTrip?.id;
-                        if (!targetId) return;
-                        if (confirm(`Do you really want to delete your current journey "${activeTrip.name}"? This removes all local checked-in spots and ledger receipts.`)) {
-                          const index = trips.findIndex(curr => curr.id === targetId);
-                          const filtered = trips.filter(curr => curr.id !== targetId);
-                          setTrips(filtered);
-                          if (filtered.length === 0) {
-                            setActiveTripId('');
-                            setIsCreatingTrip(true);
-                          } else {
-                            const fallbackIndex = index === 0 ? 0 : index - 1;
-                            setActiveTripId(filtered[fallbackIndex]?.id || filtered[0]?.id || '');
-                          }
+                        if (activeTrip) {
+                          setJourneyToDelete(activeTrip);
                         }
                       }}
                       className="p-1 px-1.5 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 active:scale-95 transition-all shrink-0 border border-transparent cursor-pointer"
@@ -1082,7 +1148,7 @@ export default function App() {
                 {user && (
                   <button 
                     type="button"
-                    onClick={() => setShowProfileSettingsModal(true)}
+                    onClick={() => setActiveTab('profile')}
                     className="flex items-center justify-center w-6 h-6 rounded-full border border-[#FAF8F5] bg-[#5A5A40] text-white text-[10px] font-bold font-serif uppercase cursor-pointer hover:scale-105 active:scale-95 transition-all overflow-hidden"
                     title="View card profile"
                   >
@@ -1103,33 +1169,38 @@ export default function App() {
               </div>
             </div>
 
-            {/* Premium, horizontal scrollable tab list of journeys */}
-            <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none py-1.5 border-t border-[#F8F6F2]">
-              <span className="text-[8px] font-mono text-stone-400 uppercase font-bold tracking-wider select-none shrink-0">Bridges:</span>
-              {trips.map(curr => (
-                <button
-                  key={curr.id}
-                  type="button"
-                  onClick={() => setActiveTripId(curr.id)}
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-tight transition-all shrink-0 ${
-                    curr.id === activeTripId
-                      ? 'bg-[#5A5A40] text-white shadow-3xs'
-                      : 'bg-stone-100 hover:bg-stone-200 text-stone-600 hover:text-[#5A5A40]'
-                  }`}
-                >
-                  🚀 {curr.name}
-                </button>
-              ))}
+            {/* Premium, Intuitive Journey Selector dropdown */}
+            <div className="flex items-center justify-between py-1.5 border-t border-[#F8F6F2] text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-mono text-stone-400 uppercase font-bold tracking-wider select-none shrink-0">Trip:</span>
+                <div className="relative flex items-center">
+                  <select
+                    value={activeTripId}
+                    onChange={(e) => setActiveTripId(e.target.value)}
+                    className="appearance-none bg-stone-50 border border-stone-200 hover:border-stone-300 rounded-lg pl-2 pr-7 py-0.5 text-[11px] font-serif font-black text-[#5A5A40] focus:outline-none focus:ring-1 focus:ring-[#5A5A40] cursor-pointer"
+                  >
+                    {trips.map(curr => (
+                      <option key={curr.id} value={curr.id}>
+                        🚀 {curr.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-stone-500">
+                    <ChevronDown className="w-3.5 h-3.5 stroke-[3]" />
+                  </div>
+                </div>
+              </div>
+
               <button 
                 type="button"
                 onClick={() => {
                   setNewTripStep(1);
                   setIsCreatingTrip(true);
                 }}
-                className="h-5 px-2 rounded-full bg-stone-50 hover:bg-stone-100 border border-dashed border-stone-300 text-stone-500 text-[8.5px] uppercase font-mono font-bold flex items-center gap-0.5 transition-colors shrink-0 active:scale-95"
+                className="h-6 px-2.5 rounded-lg bg-stone-50 hover:bg-[#5A5A40] hover:text-white border border-stone-200 text-[#5A5A40] text-[9px] uppercase font-mono font-bold flex items-center gap-1 transition-all shrink-0 active:scale-95 cursor-pointer"
                 title="Assemble brand new voyage"
               >
-                + New
+                <span>+ New</span>
               </button>
             </div>
           </header>
@@ -1226,7 +1297,7 @@ export default function App() {
               </div>
 
               {/* Main Content Area */}
-              <div className="flex-1 p-5 space-y-4 text-left overflow-y-auto">
+              <div className={`flex-1 p-5 space-y-4 text-left overflow-y-auto transition-all ${newTripStep === 3 ? getCityTheme(newTripForm.destination).bgColor : 'bg-[#FAF9F7]'}`}>
                 
                 {/* STEP 1 */}
                 {newTripStep === 1 && (
@@ -1450,33 +1521,13 @@ export default function App() {
                     </div>
 
                     {/* Dynamic Accommodation stay picker */}
-                    <div className="space-y-3 p-3 bg-stone-50 rounded-2xl border border-stone-200/60">
-                      <div>
-                        <label className="text-[9px] font-mono uppercase text-[#5A5A40] block mb-1 font-extrabold">🏡 Where are you staying?</label>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {(['hotel', 'airbnb', 'apartment'] as const).map(type => (
-                            <button
-                              key={type}
-                              type="button"
-                              onClick={() => setNewTripForm(prev => ({ ...prev, accommodationType: type }))}
-                              className={`py-1 rounded-lg text-[9px] uppercase font-mono font-bold transition-all border ${
-                                newTripForm.accommodationType === type
-                                  ? 'bg-[#5A5A40] text-white border-[#5A5A40]'
-                                  : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'
-                              }`}
-                            >
-                              {type}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                       <div className="relative">
-                        <label className="text-[9px] font-mono uppercase text-stone-500 block mb-0.5 font-bold">Hotel or place name</label>
+                    <div className="space-y-3.5 p-3.5 bg-stone-50 rounded-2xl border border-stone-200/60">
+                      <div className="relative">
+                        <label className="text-[10px] font-mono uppercase text-[#5A5A40] block mb-1 font-extrabold">🏡 Where will you be staying?</label>
                         <div className="relative">
                           <input
                             type="text"
-                            placeholder="e.g. Kyoto Boutique Hotel, Shijo-Omiya"
+                            placeholder="Search hotel, apartment, Airbnb, or hostel name..."
                             value={newTripForm.accommodationName}
                             onFocus={() => setAccomFocused(true)}
                             onChange={(e) => {
@@ -1524,130 +1575,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* 💳 SELECT PAYMENT METHODS */}
-                    <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200/60 space-y-3">
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9.5px] font-mono uppercase text-[#5A5A40] font-extrabold flex items-center gap-1">
-                            <span>💳 Payment Cards</span>
-                          </label>
-                        </div>
-                        <p className="text-[8px] text-stone-400 leading-normal mb-2.5">
-                          Select the payment cards you want to use for this trip. When you spend money during your trip, Nomo will automatically charge your selected cards. If a card runs out of money, it will try the next card in your list.
-                        </p>
-
-                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                          {registeredCards.map((card) => {
-                            const isSelected = newTripForm.selectedPaymentMethodIds.includes(card.id);
-                            const listOrder = newTripForm.selectedPaymentMethodIds.indexOf(card.id);
-                            return (
-                              <button
-                                key={card.id}
-                                type="button"
-                                onClick={() => {
-                                  let newIds = [...newTripForm.selectedPaymentMethodIds];
-                                  if (isSelected) {
-                                    newIds = newIds.filter(id => id !== card.id);
-                                  } else {
-                                    newIds.push(card.id);
-                                  }
-                                  setNewTripForm(prev => ({
-                                    ...prev,
-                                    selectedPaymentMethodIds: newIds
-                                  }));
-                                }}
-                                className={`w-full flex items-center justify-between p-2 rounded-xl border transition-all text-left cursor-pointer ${
-                                  isSelected 
-                                    ? 'bg-white border-[#5A5A40] text-[#3C3836] shadow-2xs' 
-                                    : 'bg-[#FBF9F7] border-stone-200 text-stone-500 hover:bg-stone-50'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <div className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition-all ${
-                                    isSelected 
-                                      ? 'bg-[#5A5A40] border-[#5A5A40] text-white' 
-                                      : 'border-stone-300 bg-white'
-                                  }`}>
-                                    {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                                  </div>
-                                  <div>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-[10.5px] font-bold font-sans tracking-tight">{card.name}</span>
-                                      {card.bankName && (
-                                        <span className="text-[7px] font-mono bg-stone-200 text-stone-600 px-1 rounded font-semibold uppercase">{card.bankName}</span>
-                                      )}
-                                    </div>
-                                    <span className="text-[8px] font-mono opacity-80 block">
-                                      {card.type} •••• {card.lastFour} {card.balance !== undefined && `• Bal: ₱${card.balance.toLocaleString()}`}
-                                    </span>
-                                  </div>
-                                </div>
-                                <span className={`text-[8.5px] font-mono font-bold uppercase transition-all ${
-                                  isSelected ? 'text-[#3E7D3F]' : 'text-stone-400'
-                                }`}>
-                                  {isSelected ? `Try #${listOrder + 1}` : 'Inactive'}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* QUICK PH CARD CONNECTION WIDGET WITHIN CREATION */}
-                      <div className="border-t border-stone-200/65 pt-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const bank = prompt("Enter Philippine Bank Name (GoTyme, Maya, MariBank, HSBC):");
-                            if (!bank) return;
-                            const bName = bank.trim().charAt(0).toUpperCase() + bank.trim().slice(1);
-                            if (!['GoTyme', 'Maya', 'MariBank', 'HSBC'].includes(bName)) {
-                              alert("Please enter a supported Philippines partner: GoTyme, Maya, MariBank, or HSBC.");
-                              return;
-                            }
-                            const name = prompt("Enter Cardholder Name:", user?.name || "Sophie Nomad");
-                            if (!name) return;
-                            const num = prompt("Enter 16-Digit Card Number (mock digits):", "4532 9918 " + Math.floor(1000 + Math.random() * 9000) + " " + Math.floor(1000 + Math.random() * 9000));
-                            if (!num) return;
-
-                            // Ask for card CVV & expiry date for real payment validation
-                            const expire = prompt("Enter Card Expiry Date (MM/YY):", "12/28");
-                            if (!expire) return;
-                            const cvvInput = prompt("Enter 3-Digit Card Security Code (CVV):", "123");
-                            if (!cvvInput) return;
-
-                            fetch('/api/payment/connect-card', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ 
-                                bankName: bName, 
-                                cardNumber: num, 
-                                cardholderName: name,
-                                expiryDate: expire,
-                                cvv: cvvInput
-                              })
-                            })
-                            .then(r => r.json())
-                            .then(data => {
-                              if (data.success && data.card) {
-                                setRegisteredCards(prev => [...prev, data.card]);
-                                setNewTripForm(prev => ({
-                                  ...prev,
-                                  selectedPaymentMethodIds: [...prev.selectedPaymentMethodIds, data.card.id]
-                                }));
-                                alert(`🎉 Successfully connected to ${bName}!\n💳 ${data.card.name} is now added.`);
-                              } else {
-                                alert(`🚨 Connection Error: ${data.error || 'Failed to authenticate card.'}`);
-                              }
-                            });
-                          }}
-                          className="w-full py-1.5 bg-white border border-[#CDCDCD] hover:border-[#5A5A40] text-stone-600 hover:text-[#5A5A40] font-mono text-[8px] font-bold uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <span>＋ Add card</span>
-                        </button>
-                      </div>
-                    </div>
-
                     <div className="flex gap-2 pt-2">
                       <button
                         type="button"
@@ -1674,6 +1601,7 @@ export default function App() {
                   const datesList = getDatesInRange(newTripForm.startDate, newTripForm.endDate);
                   const totalDays = datesList.length || 1;
                   const currentDateStr = datesList[plannerDayIndex] || newTripForm.startDate;
+                  const currentTheme = getCityTheme(newTripForm.destination);
                   
                   // Filter the list they see in this step to match the active day they are planning
                   const spotsForCurrentDay = initialItinerary.filter(item => item.visitDate === currentDateStr);
@@ -1681,25 +1609,74 @@ export default function App() {
                   return (
                     <div className="space-y-4 animate-fade-in text-left">
                       
-                      {/* Interactive Active Day Badge Card */}
-                      <div className="bg-[#5A5A40] text-white p-4 rounded-3xl shadow-sm relative overflow-hidden">
-                        {/* Tape effect */}
-                        <div className="absolute top-1 right-4 w-24 h-4 bg-white/20 flex items-center justify-center font-mono text-[7px] text-white font-bold uppercase tracking-wider rotate-2">
-                          🗺️ Agenda Set
+                      {/* Sleek, Single-Row Planning Banner (Space-saving replacement) */}
+                      <div className="bg-[#5A5A40] text-white p-3 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-3xs relative overflow-hidden">
+                        {/* Accent subtle background pattern */}
+                        <div className="absolute right-2 bottom-[-10px] w-24 h-12 opacity-10 pointer-events-none hidden sm:block">
+                          {currentTheme.illustration}
                         </div>
-                        <span className="text-[8px] font-mono uppercase tracking-widest text-[#EAE0D8] font-bold">Currently Planning:</span>
-                        <h4 className="font-serif italic text-xl font-bold mt-0.5">Day {plannerDayIndex + 1} of {totalDays}</h4>
-                        <p className="text-[10px] text-white/90 font-mono font-bold mt-1 uppercase">🗓️ Date: {currentDateStr}</p>
+
+                        <div className="flex items-center gap-2.5">
+                          {/* Circular status badge */}
+                          <div className="bg-white/15 border border-white/10 px-2 py-0.5 rounded-lg text-center flex flex-col items-center justify-center shrink-0 min-w-[45px]">
+                            <span className="text-[6.5px] font-mono uppercase tracking-wider text-white/70 leading-none">Day</span>
+                            <span className="text-xs font-sans font-black leading-none mt-0.5">{plannerDayIndex + 1} <span className="text-[9px] text-white/55 font-normal">/ {totalDays}</span></span>
+                          </div>
+                          
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap leading-none">
+                              <h4 className="font-serif italic text-xs font-bold text-white">Planning {currentTheme.name}</h4>
+                              <span className="text-xs">{currentTheme.stickerEmoji}</span>
+                            </div>
+                            <p className="text-[8px] text-[#EAE0D8] font-mono uppercase tracking-widest leading-none">🗓️ {currentDateStr}</p>
+                          </div>
+                        </div>
+
+                        {/* Quick guidance inline */}
+                        <div className="text-left sm:text-right max-w-sm">
+                          <p className="text-[9px] text-white/85 leading-tight">
+                            Add places for <strong>Day {plannerDayIndex + 1}</strong>. Click <strong>"Proceed to Next Day"</strong> below once finished!
+                          </p>
+                        </div>
                       </div>
 
-                      {/* User Instruction Banner */}
-                      <div className="p-3.5 bg-[#FAF8F5] border border-[#DDD0C5] rounded-2xl space-y-1">
-                        <span className="text-[8px] font-mono uppercase font-black text-[#5A5A40] block tracking-wide">
-                          📅 How to proceed:
-                        </span>
-                        <p className="text-[10px] text-stone-600 leading-relaxed font-sans">
-                          Add all planned spots for <strong>Day {plannerDayIndex + 1} ({currentDateStr})</strong>. Once finished, click <strong>"Proceed to Next Day"</strong> to configure subsequent dates until your journey concludes!
-                        </p>
+                      {/* INSTANT AUTOFILL ITINERARY CARD */}
+                      <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50/70 border border-amber-200 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-3xs">
+                        <div className="space-y-0.5 text-left flex-1">
+                          <span className="text-[8px] font-mono uppercase font-black bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded leading-none inline-block">
+                            ✨ SKIP THE HASSLE
+                          </span>
+                          <h6 className="font-serif italic font-bold text-xs text-[#3C3836] mt-1">
+                            Instant Destination Autofill Planner
+                          </h6>
+                          <p className="text-[9.5px] text-stone-600 leading-normal">
+                            Pre-populate your entire {totalDays}-day itinerary with 5-star hand-picked local cafes, monuments, and culinary hotspots instantly.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const generated = generatePresetItinerary(newTripForm.destination, datesList);
+                            setInitialItinerary(generated);
+                            try {
+                              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                              const osc = audioCtx.createOscillator();
+                              const gain = audioCtx.createGain();
+                              osc.connect(gain);
+                              gain.connect(audioCtx.destination);
+                              osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                              osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+                              osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.2); // G5
+                              gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+                              gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+                              osc.start();
+                              osc.stop(audioCtx.currentTime + 0.4);
+                            } catch (e) {}
+                          }}
+                          className="px-3 py-2 bg-[#5A5A40] text-white hover:bg-[#4a4a34] text-[9px] uppercase font-mono font-black rounded-xl shadow-sm tracking-wider transition-all whitespace-nowrap cursor-pointer self-stretch sm:self-auto text-center"
+                        >
+                          🚀 Autofill Planner!
+                        </button>
                       </div>
 
                       {/* AI Suggestions Sparkles Button */}
@@ -1795,11 +1772,10 @@ export default function App() {
                         {showOptionalItineraryFields ? (
                           <div className="space-y-2 pt-1 animate-fade-in text-left">
                             <div>
-                              <label className="text-[8.5px] font-mono uppercase text-stone-500 block mb-0.5">Estimated Arrival Time</label>
+                              <label className="text-[8.5px] font-mono uppercase text-[#5A5A40] block mb-0.5 font-bold">⏰ Estimated Arrival Time</label>
                               <input
-                                type="text"
+                                type="time"
                                 value={itineraryForm.arrivalTime}
-                                placeholder="e.g. 10:30 AM or Sunset"
                                 onChange={(e) => setItineraryForm(prev => ({ ...prev, arrivalTime: e.target.value }))}
                                 className="w-full bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-[#5A5A40] focus:outline-none"
                               />
@@ -1854,9 +1830,6 @@ export default function App() {
                           <span className="text-[#5A5A40] font-bold">{spotsForCurrentDay.length} spots saved</span>
                         </p>
                         
-                        {/* Map visualization of currently planned daily spots rundown */}
-                        <MiniOSMMap destination={newTripForm.destination} spots={spotsForCurrentDay} />
-                        
                         {spotsForCurrentDay.length > 0 ? (
                           <div className="relative border-l border-dashed border-[#5A5A40]/30 ml-3 pl-4 space-y-3 max-h-[160px] overflow-y-auto pr-1">
                             {spotsForCurrentDay.map((item, idx) => {
@@ -1877,12 +1850,12 @@ export default function App() {
                                       </div>
                                       <div className="grid grid-cols-2 gap-2">
                                         <div>
-                                          <label className="text-[8.5px] font-mono uppercase text-[#8C857E] block font-bold">Edit Time</label>
+                                          <label className="text-[8.5px] font-mono uppercase text-[#5A5A40] block font-bold">⏰ Edit Time</label>
                                           <input
-                                            type="text"
+                                            type="time"
                                             value={editingItineraryForm.arrivalTime}
                                             onChange={(e) => setEditingItineraryForm(p => ({ ...p, arrivalTime: e.target.value }))}
-                                            className="w-full bg-[#FAF8F5] border border-stone-200 rounded px-2 py-1 focus:outline-none"
+                                            className="w-full bg-[#FAF8F5] border border-stone-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#5A5A40]"
                                           />
                                         </div>
                                         <div>
@@ -1950,7 +1923,7 @@ export default function App() {
                                       <div className="truncate flex-1">
                                         <div className="flex items-center gap-1.5">
                                           <span className="text-[8px] font-mono font-bold bg-[#FAF8F5] border px-1.5 py-0.5 text-[#5A5A40] rounded shrink-0 leading-none">
-                                            {item.arrivalTime || 'TBA'}
+                                            {formatTime12h(item.arrivalTime)}
                                           </span>
                                           <span className="text-[#3C3836] font-bold text-xs truncate">{item.title}</span>
                                         </div>
@@ -2076,12 +2049,17 @@ export default function App() {
               {activeTab === 'journal' && (
                 <JournalTab 
                   activeTrip={activeTrip}
-                  communityReviews={communityReviews}
-                  onAddCommunityReview={(rev) => setCommunityReviews(prev => [rev, ...prev])}
-                  onNavigateToTab={(tab) => setActiveTab(tab)}
+                  trips={trips}
+                  onNavigateToTab={(tab) => {
+                    if (tab === 'chat' as any) {
+                      setActiveTab('insights');
+                    } else {
+                      setActiveTab(tab as any);
+                    }
+                  }}
                   onAskAIAboutSpot={(query) => {
                     setCurrentQuery(query);
-                    setActiveTab('chat');
+                    setActiveTab('insights');
                   }}
                 />
               )}
@@ -2125,10 +2103,7 @@ export default function App() {
               {activeTab === 'insights' && (
                 trips.length === 0 ? (
                   <div className="flex flex-col justify-center items-center text-center p-8 h-full bg-white animate-fade-in relative">
-                    <div className="absolute top-4 left-1/2 -translate-x-1/2 w-32 h-5 bg-[#C8B8AB]/20 flex items-center justify-center font-mono text-[7px] text-[#5A5A40] font-bold uppercase -rotate-1 pointer-events-none">
-                      🧠 AI Empty State
-                    </div>
-                    <div className="p-4 rounded-full bg-[#EAE0D8] text-[#5A5A40] mb-4">
+                    <div className="p-4 rounded-full bg-[#EAE0D8] text-[#5A5A40] mb-4 mt-4">
                       <Sparkles className="w-10 h-10 stroke-[1.5]" />
                     </div>
                     <h3 className="font-serif italic text-base text-[#3C3836] font-bold">Uncharted Travel Personality</h3>
@@ -2155,14 +2130,52 @@ export default function App() {
                 )
               )}
 
-              {activeTab === 'chat' && (
-                <ChatTab 
-                  chatMessages={chatMessages}
-                  sendingChat={sendingChat}
-                  currentQuery={currentQuery}
-                  onQueryChange={setCurrentQuery}
-                  onSubmitChat={sendChatMessage}
-                  activeTrip={activeTrip}
+              {activeTab === 'profile' && user && (
+                <ProfileTab 
+                  trips={trips}
+                  user={user}
+                  onSave={(updatedUser) => {
+                    // Find and update credentials inside local user DB list
+                    const dbStr = localStorage.getItem('nomo_users_db_v3');
+                    if (dbStr) {
+                      try {
+                        const db = JSON.parse(dbStr);
+                        const updatedDb = db.map((u: any) => 
+                          u.email.toLowerCase() === user.email.toLowerCase() ? updatedUser : u
+                        );
+                        localStorage.setItem('nomo_users_db_v3', JSON.stringify(updatedDb));
+                      } catch (e) {}
+                    }
+                    setUser(updatedUser);
+                    localStorage.setItem('nomo_user_v3', JSON.stringify(updatedUser));
+                  }}
+                  onLogout={() => {
+                    localStorage.removeItem('nomo_user_v3');
+                    localStorage.removeItem('nomo_onboarding_done_v3');
+                    localStorage.removeItem('nomo_feature_tour_done_v3');
+                    setUser(null);
+                    setIsOnboardingActive(true);
+                  }}
+                  onDeleteProfile={() => {
+                    // Delete specifically from the traveler database list
+                    const dbStr = localStorage.getItem('nomo_users_db_v3');
+                    if (dbStr) {
+                      try {
+                        const db = JSON.parse(dbStr);
+                        const updatedDb = db.filter((u: any) => u.email.toLowerCase() !== user.email.toLowerCase());
+                        localStorage.setItem('nomo_users_db_v3', JSON.stringify(updatedDb));
+                      } catch (e) {}
+                    }
+                    localStorage.removeItem('nomo_user_v3');
+                    localStorage.removeItem('nomo_onboarding_done_v3');
+                    localStorage.removeItem('nomo_feature_tour_done_v3');
+                    localStorage.removeItem('nomo_trips_v3');
+                    localStorage.removeItem('nomo_community_reviews_v3');
+                    setUser(null);
+                    setIsOnboardingActive(true);
+                    setTrips([]);
+                    setCommunityReviews([]);
+                  }}
                 />
               )}
             </>
@@ -2171,7 +2184,7 @@ export default function App() {
 
         {/* PERSISTENT BOTTOM TAB NAVBAR CONTROLLER */}
         {!isCreatingTrip && (
-          <nav className="h-14 border-t border-[#F1EFE9] bg-white text-[#3C3836] flex justify-around items-center shrink-0 z-20 pb-safe shadow-md animate-fade-in">
+          <nav className="sticky bottom-0 left-0 right-0 h-14 border-t border-[#F1EFE9] bg-white text-[#3C3836] flex justify-around items-center shrink-0 z-30 pb-safe shadow-lg animate-fade-in">
             <button
               onClick={() => setActiveTab('ledger')}
               className={`flex flex-col items-center justify-center w-14 h-full transition-all active:scale-95 ${
@@ -2189,7 +2202,7 @@ export default function App() {
               }`}
             >
               <BookOpen className="w-4 h-4" />
-              <span className="text-[8px] font-mono mt-1 tracking-wider uppercase">Community</span>
+              <span className="text-[8px] font-mono mt-1 tracking-wider uppercase">Recaps</span>
             </button>
 
             <button
@@ -2203,13 +2216,13 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setActiveTab('chat')}
+              onClick={() => setActiveTab('profile')}
               className={`flex flex-col items-center justify-center w-14 h-full transition-all active:scale-95 ${
-                activeTab === 'chat' ? 'text-[#5A5A40] font-bold' : 'text-[#A8A29E] hover:text-stone-600'
+                activeTab === 'profile' ? 'text-[#5A5A40] font-bold' : 'text-[#A8A29E] hover:text-stone-600'
               }`}
             >
-              <MessageSquare className="w-4 h-4 animate-none" />
-              <span className="text-[8px] font-mono mt-1 tracking-wider uppercase">Chat</span>
+              <User className="w-4 h-4" />
+              <span className="text-[8px] font-mono mt-1 tracking-wider uppercase">Profile</span>
             </button>
           </nav>
         )}
@@ -2260,7 +2273,7 @@ export default function App() {
                     <h4 className="font-serif italic font-bold text-xs text-[#3C3836]">🗺️ Travel Planner & Itinerary</h4>
                   </div>
                   <p className="text-[11px] text-[#8C857E] leading-relaxed">
-                    The heart of your trace. Plan daily agendas, log cash/card expenditures with diary highlights, rate visited spots, and let Nomo divide pocket ledger debts with your travel partners seamlessly.
+                    The heart of your trip. Plan daily agendas, log expenditures with journal highlights, rate visited spots, and split expenses with your travel partners seamlessly.
                   </p>
                 </div>
               )}
@@ -2282,13 +2295,13 @@ export default function App() {
               {tourStep === 4 && (
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
-                    <span className="p-1 rounded-md bg-[#EAE0D8] text-[#5A5A40]">
-                      <MessageSquare className="w-3.5 h-3.5" />
+                    <span className="p-1 rounded-md bg-[#EAE0D8] text-amber-500">
+                      <Trophy className="w-3.5 h-3.5" />
                     </span>
-                    <h4 className="font-serif italic font-bold text-xs text-[#3C3836]">💬 Pocket AI Chat</h4>
+                    <h4 className="font-serif italic font-bold text-xs text-[#3C3836]">🏅 Passport Sticker Medals</h4>
                   </div>
                   <p className="text-[11px] text-[#8C857E] leading-relaxed">
-                    Consult Nomo at any moment. Ask for low-cost alternative destinations, inquire about currency conversion & expense parameters, or design custom itineraries together.
+                    Review and check off at least 15 places in any city to unlock its majestic Gold Shield Sticker! Track your unlocked stickers for Tokyo, Seoul, London, Paris, Jakarta, and Beijing directly on your passport tab.
                   </p>
                 </div>
               )}
@@ -2341,7 +2354,130 @@ export default function App() {
           </div>
         )}
 
+        {/* Celebration Success Page overlay */}
+        {showCreationSuccess && (
+          <div className="absolute inset-0 bg-[#FAF9F7]/98 backdrop-blur-xs z-50 flex flex-col justify-between p-6 text-center animate-fade-in select-none">
+            {/* Top spacer / notch buffer */}
+            <div className="h-6" />
+
+            {/* Celebrating visual content */}
+            <div className="space-y-6 my-auto flex flex-col items-center justify-center animate-fade-in">
+              {/* Confetti or circular icon animations */}
+              <div className="relative">
+                <div className="absolute inset-0 bg-[#5A5A40]/10 rounded-full scale-150 animate-ping opacity-75" />
+                <div className="w-20 h-20 rounded-full bg-[#EAE0D8] text-[#5A5A40] flex items-center justify-center shadow-md relative z-10">
+                  <Sparkles className="w-10 h-10 animate-pulse stroke-[1.5]" />
+                </div>
+              </div>
+
+              {/* Celebrating typography */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-mono uppercase bg-[#5A5A40]/10 text-[#5A5A40] px-2.5 py-1 rounded-full font-black tracking-widest animate-pulse">
+                  ✨ Itinerary Completed!
+                </span>
+                <h3 className="text-xl font-serif italic text-stone-850 font-black leading-tight">
+                  "{activeTrip?.name}" Is Pinned
+                </h3>
+                <p className="text-[11px] text-[#8C857E] max-w-xs mx-auto leading-relaxed">
+                  Your solo travel adventure is officially mapped out! Get ready to explore {activeTrip?.destination}, track your offline expenses, and capture daily cinematic moments.
+                </p>
+              </div>
+
+              {/* Summary metadata card */}
+              <div className="w-full max-w-xs bg-white border border-[#F1EFE9] rounded-2xl p-4 shadow-3xs space-y-3.5 text-left">
+                <div className="flex justify-between items-center pb-2 border-b border-stone-100">
+                  <span className="text-[9px] font-mono text-stone-400 uppercase font-bold">Trip Highlights</span>
+                  <span className="text-[8px] font-mono px-2 py-0.5 bg-stone-100 text-stone-600 rounded-full font-bold">AESTHETIC VIBE</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3.5 text-xs">
+                  <div>
+                    <span className="text-[8px] font-mono text-[#8C857E] uppercase block font-bold">Destination</span>
+                    <span className="font-extrabold text-stone-800 leading-tight block mt-0.5 truncate">{activeTrip?.destination}</span>
+                  </div>
+                  <div>
+                    <span className="text-[8px] font-mono text-[#8C857E] uppercase block font-bold">Aesthetic Budget</span>
+                    <span className="font-extrabold text-[#5A5A40] block mt-0.5">{activeTrip?.currency} {activeTrip?.budget?.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-[8px] font-mono text-[#8C857E] uppercase block font-bold">Planned Spots</span>
+                    <span className="font-extrabold text-stone-800 block mt-0.5">{activeTrip?.itinerary?.length} Locations</span>
+                  </div>
+                  <div>
+                    <span className="text-[8px] font-mono text-[#8C857E] uppercase block font-bold">Duration</span>
+                    <span className="font-extrabold text-stone-800 block mt-0.5">{activeTrip && getDatesInRange(activeTrip.startDate, activeTrip.endDate).length} Days</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Action button at bottom */}
+            <div className="space-y-3 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreationSuccess(false);
+                  try { playNomoChords('Joyful'); } catch(e) {}
+                }}
+                className="w-full py-3 bg-[#5A5A40] text-white font-mono text-xs font-bold uppercase tracking-widest rounded-2xl hover:bg-[#4a4a34] active:scale-98 transition-all shadow-md cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>Wander Now</span>
+                <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+              </button>
+              <p className="text-[8.5px] font-mono text-stone-400 font-bold uppercase tracking-wider">
+                tap anywhere or click "wander now" to launch journey
+              </p>
+            </div>
+          </div>
+        )}
+
       </div>
+
+      {/* CUSTOM CONFIRMATION DIALOG FOR DELETING JOURNEY */}
+      {journeyToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-xs p-5 border border-[#F1EFE9] shadow-2xl text-left space-y-4 animate-fade-in">
+            <div className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5 stroke-[2]" />
+              <h3 className="font-serif italic font-bold text-sm">Delete Journey?</h3>
+            </div>
+            <p className="text-[11px] text-[#8C857E] leading-relaxed">
+              Are you sure you want to delete the journey <strong className="text-stone-800">"{journeyToDelete.name}"</strong>?
+              <br /><br />
+              This action is irreversible and will remove all of your logged checkpoints, offline expenses, and recorded reflections.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setJourneyToDelete(null)}
+                className="flex-1 py-2 bg-stone-100 hover:bg-stone-200 text-stone-600 font-mono text-[10px] font-bold uppercase rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = journeyToDelete.id;
+                  const index = trips.findIndex(curr => curr.id === targetId);
+                  const filtered = trips.filter(curr => curr.id !== targetId);
+                  setTrips(filtered);
+                  if (filtered.length === 0) {
+                    setActiveTripId('');
+                    setIsCreatingTrip(true);
+                    setShowTripListModal(false);
+                  } else {
+                    const fallbackIndex = index === 0 ? 0 : index - 1;
+                    setActiveTripId(filtered[fallbackIndex]?.id || filtered[0]?.id || '');
+                  }
+                  setJourneyToDelete(null);
+                }}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-mono text-[10px] font-bold uppercase rounded-xl transition-all cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL 1: TRIP LISTS & MANAGEMENT */}
       {showTripListModal && (
@@ -2399,21 +2535,9 @@ export default function App() {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm(`Do you really want to delete the journey "${t.name}"? This removes all local checked-in spots and ledger receipts.`)) {
-                          const index = trips.findIndex(curr => curr.id === t.id);
-                          const filtered = trips.filter(curr => curr.id !== t.id);
-                          setTrips(filtered);
-                          if (filtered.length === 0) {
-                            setActiveTripId('');
-                            setIsCreatingTrip(true);
-                            setShowTripListModal(false);
-                          } else if (isActive) {
-                            const fallbackIndex = index === 0 ? 0 : index - 1;
-                            setActiveTripId(filtered[fallbackIndex]?.id || filtered[0]?.id || '');
-                          }
-                        }
+                        setJourneyToDelete(t);
                       }}
-                      className="p-1 px-1.5 rounded-xl hover:bg-red-55 text-stone-400 hover:text-red-500 active:scale-95 transition-all shrink-0"
+                      className="p-1 px-1.5 rounded-xl hover:bg-red-55 text-stone-400 hover:text-red-500 active:scale-95 transition-all shrink-0 cursor-pointer"
                       title="Delete journey"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -2491,7 +2615,7 @@ export default function App() {
                 <div className="space-y-4 py-1">
                   <div className="bg-[#FAF8F5] p-3 rounded-2xl border border-[#F1EFE9] text-left">
                     <p className="text-[11px] text-[#5A5A40] font-serif italic leading-relaxed">
-                      "To measure is to wander. Describe your purchase or experience trace, and define its value."
+                      "Describe your purchase or expense, and enter the total amount."
                     </p>
                   </div>
                   <div className="space-y-3">
@@ -2526,12 +2650,12 @@ export default function App() {
                 <div className="space-y-4 py-1">
                   <div className="bg-[#FAF8F5] p-3 rounded-2xl border border-[#F1EFE9] text-left">
                     <p className="text-[11px] text-[#5A5A40] font-serif italic leading-relaxed">
-                      "Classify the energy realm of this transaction, and record when this traces occurred."
+                      "Select a category for this transaction, and record the date."
                     </p>
                   </div>
                   
                   <div>
-                    <label className="text-[10px] font-mono uppercase text-[#8C857E] font-bold block mb-1.5 text-left">Wander Category Category</label>
+                    <label className="text-[10px] font-mono uppercase text-[#8C857E] font-bold block mb-1.5 text-left">Expense Category</label>
                     <div className="grid grid-cols-2 gap-1.5">
                       {[
                         { val: "Cafe", label: "☕ Café & Workspace" },
@@ -2686,7 +2810,7 @@ export default function App() {
                 <div className="space-y-4 py-1 text-left">
                   <div className="bg-[#FAF8F5] p-3 rounded-2xl border border-[#F1EFE9]">
                     <p className="text-[11px] text-[#5A5A40] font-serif italic leading-relaxed">
-                      "Capture the ambient music playing and tap an aesthetic Polaroid background thumbnail trace."
+                      "Add the ambient music playing or pick a background cover photo for this entry."
                     </p>
                   </div>
 
@@ -2858,54 +2982,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 3: PROFILE SETTINGS SHEET */}
-      {showProfileSettingsModal && user && (
-        <ProfileSettingsModal
-          isOpen={showProfileSettingsModal}
-          onClose={() => setShowProfileSettingsModal(false)}
-          user={user}
-          onSave={(updatedUser) => {
-            // Find and update credentials inside local user DB list
-            const dbStr = localStorage.getItem('nomo_users_db_v3');
-            if (dbStr) {
-              const db = JSON.parse(dbStr);
-              const updatedDb = db.map((u: any) => 
-                u.email.toLowerCase() === user.email.toLowerCase() ? updatedUser : u
-              );
-              localStorage.setItem('nomo_users_db_v3', JSON.stringify(updatedDb));
-            }
-            setUser(updatedUser);
-            localStorage.setItem('nomo_user_v3', JSON.stringify(updatedUser));
-          }}
-          onLogout={() => {
-            localStorage.removeItem('nomo_user_v3');
-            localStorage.removeItem('nomo_onboarding_done_v3');
-            localStorage.removeItem('nomo_feature_tour_done_v3');
-            setUser(null);
-            setIsOnboardingActive(true);
-            setShowProfileSettingsModal(false);
-          }}
-          onDeleteProfile={() => {
-            // Delete specifically from the traveler database list
-            const dbStr = localStorage.getItem('nomo_users_db_v3');
-            if (dbStr) {
-              const db = JSON.parse(dbStr);
-              const updatedDb = db.filter((u: any) => u.email.toLowerCase() !== user.email.toLowerCase());
-              localStorage.setItem('nomo_users_db_v3', JSON.stringify(updatedDb));
-            }
-            localStorage.removeItem('nomo_user_v3');
-            localStorage.removeItem('nomo_onboarding_done_v3');
-            localStorage.removeItem('nomo_feature_tour_done_v3');
-            localStorage.removeItem('nomo_trips_v3');
-            localStorage.removeItem('nomo_community_reviews_v3');
-            setUser(null);
-            setIsOnboardingActive(true);
-            setTrips([]);
-            setCommunityReviews([]);
-            setShowProfileSettingsModal(false);
-          }}
-        />
-      )}
+
 
     </div>
   );

@@ -151,13 +151,8 @@ export default function SignupScreen({ onSignupComplete, onSkipToDemo }: SignupS
 
   return (
     <div className="min-h-screen bg-[#FBF9F7] text-[#3C3836] p-4 md:p-8 flex flex-col justify-center items-center">
-      {/* Decorative scrap tape */}
       <div className="w-full max-w-lg bg-white rounded-[32px] p-6 md:p-10 shadow-xl border border-[#F1EFE9] relative overflow-hidden transition-all duration-300">
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-6 bg-[#DDD0C5]/40 border-b border-[#C8B8AB]/50 flex items-center justify-center font-mono text-[9px] text-[#5A5A40] font-bold uppercase tracking-widest pointer-events-none">
-          {isSignIn ? '🔑 Sign In' : '✨ Register'}
-        </div>
-
-        <div className="text-center mt-6 mb-6">
+        <div className="text-center mt-2 mb-6">
           <div className="inline-flex items-center gap-2 justify-center mb-1">
             <h1 className="text-4xl font-serif italic text-[#5A5A40] tracking-tight font-bold">nomo.</h1>
             <span className="font-mono text-[9px] bg-[#E7E5E4] px-2 py-0.5 rounded text-[#5A5A40] font-bold uppercase">

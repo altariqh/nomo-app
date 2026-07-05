@@ -37,12 +37,7 @@ export default function TripCard({ trip, onSelect, isSelected }: TripCardProps) 
           : 'border-sand-200 shadow-sm hover:border-sand-300'
       }`}
     >
-      {/* Decorative Scrapbook "Tape" header overlay */}
-      <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-28 h-6 scrapbook-tape flex items-center justify-center font-mono text-[10px] text-sand-700 font-bold uppercase tracking-wider">
-        ✈️ Travel Plan
-      </div>
-
-      <div className="flex flex-col md:flex-row gap-6 mt-2">
+      <div className="flex flex-col md:flex-row gap-6">
         {/* Polaroid Style Thumbnail */}
         <div className="w-full md:w-44 h-40 bg-sand-100 p-2.5 pb-8 rounded-lg border border-sand-200 shadow-inner flex flex-col shrink-0">
           <img

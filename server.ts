@@ -247,13 +247,15 @@ app.get('/api/places/search', async (req, res) => {
   try {
     const q = req.query.q as string;
     const limit = Number(req.query.limit) || 5;
+    const lat = req.query.lat as string;
+    const lon = req.query.lon as string;
 
     if (!q || q.trim().length < 2) {
       return res.json([]);
     }
 
     const cleanQuery = q.trim();
-    const cacheKey = `search:${cleanQuery}:${limit}`;
+    const cacheKey = `search:${cleanQuery}:${limit}:${lat || ''}:${lon || ''}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return res.json(cached);
@@ -263,7 +265,11 @@ app.get('/api/places/search', async (req, res) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5 seconds timeout limit
 
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanQuery)}&format=json&limit=${limit}&addressdetails=1&accept-language=en`;
+    let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanQuery)}&format=json&limit=${limit}&addressdetails=1&accept-language=en`;
+    if (lat && lon) {
+      url += `&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&bounded=0`;
+    }
+
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {

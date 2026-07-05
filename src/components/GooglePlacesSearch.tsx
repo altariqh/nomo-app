@@ -33,10 +33,17 @@ export default function GooglePlacesSearch({
       // Combine with location bias country/city to prioritize local travel targets
       const searchQuery = biasDestination ? `${query}, ${biasDestination}` : query;
       
-      fetch(
-        getApiUrl(`/api/places/search?q=${encodeURIComponent(searchQuery)}&limit=8`)
-      )
-        .then((res) => res.json())
+      const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(searchQuery)}&limit=8`);
+      console.log(`[GooglePlacesSearch] Requesting location search from URL: ${url}`);
+      
+      fetch(url)
+        .then((res) => {
+          console.log(`[GooglePlacesSearch] Response status received: ${res.status}`);
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+          return res.json();
+        })
         .then((data) => {
           if (Array.isArray(data)) {
             const parsed = data.map((item: any, index: number) => {
@@ -57,8 +64,14 @@ export default function GooglePlacesSearch({
           }
         })
         .catch((err) => {
-          console.error("Error searching via geocoding proxy:", err);
-          setPredictions([]);
+          console.error("[GooglePlacesSearch] Error searching via geocoding proxy:", err.message || err);
+          setPredictions([
+            {
+              id: 'err-places-conn',
+              title: '⚠️ Connection Error',
+              description: 'Could not connect to the location service. Verify your internet and API configuration.',
+            }
+          ]);
         })
         .finally(() => {
           setLoading(false);

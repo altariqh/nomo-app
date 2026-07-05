@@ -41,11 +41,6 @@ export default function OnboardingScreen({
     <div className="min-h-screen bg-[#FBF9F7] text-[#3C3836] p-4 md:p-8 flex flex-col justify-center items-center">
       <div className="w-full max-w-2xl bg-white rounded-[32px] shadow-xl border border-[#F1EFE9] overflow-hidden flex flex-col justify-between min-h-[500px] relative">
         
-        {/* Scrap tape decoration */}
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-48 h-6 bg-[#DDD0C5]/40 border-b border-[#C8B8AB]/50 flex items-center justify-center font-mono text-[9px] text-[#5A5A40] font-bold uppercase tracking-widest pointer-events-none">
-          📔 Travel Planner Guide • Step {step}/3
-        </div>
-
         {/* TOP STATUS BAR */}
         <div className="px-6 md:px-10 pt-12 pb-4 flex justify-between items-center border-b border-[#F1EFE9] shrink-0">
           <div className="flex items-center gap-1.5 flex-wrap">

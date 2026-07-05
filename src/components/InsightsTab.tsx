@@ -31,7 +31,7 @@ interface InsightsTabProps {
   activeTrip: Trip;
   onUpdateTrip: (trip: Trip) => void;
   communityReviews: CommunityReview[];
-  onNavigateToTab: (tab: 'journal' | 'ledger' | 'insights' | 'chat') => void;
+  onNavigateToTab: (tab: 'journal' | 'ledger' | 'insights' | 'profile') => void;
 }
 
 interface SwipableCardProps {
@@ -241,7 +241,7 @@ export default function InsightsTab({
       visited: false,
       arrivalTime: '11:00 AM',
       rating: card.rating,
-      review: `Discovered on AI Scout (Curation Source: ${card.recommendedBy})`,
+      review: `Discovered via recommendations (Source: ${card.recommendedBy})`,
       lat: card.lat,
       lon: card.lon,
     };
@@ -266,7 +266,7 @@ export default function InsightsTab({
       estimatedCost: card.estimatedCost || 15,
       visited: false,
       rating: card.rating,
-      review: `Bookmarked on AI Scout (Curation Source: ${card.recommendedBy})`,
+      review: `Bookmarked from recommendations (Source: ${card.recommendedBy})`,
       lat: card.lat,
       lon: card.lon,
     };
@@ -316,7 +316,7 @@ export default function InsightsTab({
   const allSwiped = scoutCards.length > 0 && scoutIndex >= scoutCards.length;
 
   return (
-    <div className="space-y-4 p-4 pb-24 overflow-y-auto max-h-[calc(100vh-140px)] select-none relative">
+    <div className="space-y-4 p-4 pb-24 overflow-y-auto h-full select-none relative">
       
       {/* 1. TOP COMMUNITY META TRACKS */}
       <div className="bg-[#5A5A40] p-3.5 rounded-2xl text-white shadow-sm text-left relative overflow-hidden flex items-center justify-between gap-3">
@@ -795,7 +795,7 @@ export default function InsightsTab({
             <BookmarkPlaceholder />
             <h5 className="text-[10px] font-mono uppercase font-black text-[#A8A29E]">No Saved Places Bookmarked Yet</h5>
             <p className="text-[9.5px] text-[#A8A29E] max-w-[200px] mx-auto leading-normal">
-              Swipe Right ❤️ on some cards in the AI Scout deck to register destinations in this library!
+              Swipe Right ❤️ on some cards in the Explorer deck to register destinations in this library!
             </p>
           </div>
         ) : (

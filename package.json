@@ -13,6 +13,7 @@
   "dependencies": {
     "@capacitor/cli": "^8.4.1",
     "@capacitor/core": "^8.4.1",
+    "@capacitor/local-notifications": "^8.2.0",
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vis.gl/react-google-maps": "^1.8.3",
