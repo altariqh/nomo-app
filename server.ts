@@ -91,6 +91,24 @@ function cleanAndExtractJSON(text: string): any {
   return JSON.parse(cleaned);
 }
 
+// Helper to perform fetch requests with a strict timeout to avoid hangs on slow/blocked external APIs (like Wikipedia/Wikimedia)
+async function fetchWithTimeout(url: string, options: any = {}, timeoutMs: number = 1200): Promise<Response> {
+  const controller = new AbortController();
+  const { signal } = controller;
+  
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: options.signal || signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // Initialize Gemini SDK client.
 // Check API key existence gracefully.
 const getGeminiClient = () => {
@@ -212,7 +230,11 @@ function getOfflineSearchFallback(q: string, limit: number): any[] {
     { name: 'Singapore', display: 'Singapore', lat: 1.3521, lon: 103.8198 },
     { name: 'New York', display: 'New York City, New York, United States', lat: 40.7128, lon: -74.0060 },
     { name: 'London', display: 'London, Greater London, England, United Kingdom', lat: 51.5074, lon: -0.1278 },
-    { name: 'Sydney', display: 'Sydney, New South Wales, Australia', lat: -33.8688, lon: 151.2093 }
+    { name: 'Sydney', display: 'Sydney, New South Wales, Australia', lat: -33.8688, lon: 151.2093 },
+    { name: 'Milan', display: 'Milan, Italy', lat: 45.4642, lon: 9.1900 },
+    { name: 'Rome', display: 'Rome, Italy', lat: 41.9028, lon: 12.4964 },
+    { name: 'Venice', display: 'Venice, Veneto, Italy', lat: 45.4342, lon: 12.3388 },
+    { name: 'Florence', display: 'Florence, Tuscany, Italy', lat: 43.7696, lon: 11.2558 }
   ];
 
   const matched = database.filter(item => 
@@ -754,6 +776,92 @@ app.post('/api/gemini/suggest-itinerary', async (req, res) => {
   }
 });
 
+// Generate a complete, highly rich, customized multi-day travel itinerary with 100% UNIQUE spots across all dates
+app.post('/api/gemini/generate-full-itinerary', async (req, res) => {
+  try {
+    const { destination, dates, budget, currency, lat, lon } = req.body;
+    if (!destination || !dates || !Array.isArray(dates) || dates.length === 0) {
+      return res.status(400).json({ error: 'Missing destination or dates list' });
+    }
+
+    const cityLower = destination.trim().toLowerCase();
+    const cleanCurr = (currency || 'USD').toUpperCase();
+    const numBudget = Number(budget) || 1000;
+    const baseLat = lat ? Number(lat) : null;
+    const baseLon = lon ? Number(lon) : null;
+
+    // Check in-memory cache to load generated itineraries instantly
+    const cacheKey = `gemini:full-itinerary:${destination}:${dates.length}:${numBudget}:${cleanCurr}:${baseLat || ''}:${baseLon || ''}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      throw new Error('Gemini client not configured');
+    }
+
+    const prompt = `
+      You are Nomo, an inspirational, elite travel curator with deep physical and cultural knowledge of worldwide travel hotspots.
+      Generate a customized, highly authentic, and 100% UNIQUE day-by-day travel itinerary for a tourist visiting "${destination}".
+      The trip spans exactly ${dates.length} days on the following specific calendar dates: ${dates.join(', ')}.
+      The total budget is about ${numBudget} ${cleanCurr}.
+      
+      CORE REQUIREMENTS:
+      1. For EACH of the ${dates.length} dates, you MUST generate exactly 3 distinct spots (e.g. a coffee/breakfast spot, a major cultural landmark/activity, and an authentic restaurant/evening view).
+      2. EVERY SINGLE location in the entire generated itinerary MUST be 100% unique. Absolutely NO place can be visited or suggested more than once during the entire trip. If the trip is multi-day, do NOT repeat any coffee shop, viewpoint, museum, or diner.
+      3. All suggestions MUST be real, physical, and highly popular or loved local venues (no generic activity names like "visit cathedral", use the actual name, e.g., "Duomo di Milano Cathedral" or "Luini Panzerotti").
+      4. For the description of each place, write a highly descriptive, bite-sized 1-to-2 sentence summary. SOURCED from real traveler experiences and top-rated Google Maps reviews (e.g. mention tips such as: 'Highly recommended on Google Maps reviews for its...', 'Try their famous...').
+      5. Provide actual, precise geographic lat and lon coordinates for each spot. If a central coordinate is known (${baseLat || 'unknown'}, ${baseLon || 'unknown'}), place all spots within a 15km radius of it.
+      6. Keep estimated costs realistic and in the local currency (${cleanCurr}).
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            itinerary: {
+              type: Type.ARRAY,
+              description: 'The list of exactly 3 unique, real-world spots per day.',
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING, description: 'Actual full name of the physical venue/spot.' },
+                  description: { type: Type.STRING, description: 'A poetic 1-to-2 sentence description detailing the vibe, referencing local Google Maps review insights and what best to try or do.' },
+                  visitDate: { type: Type.STRING, description: 'The exact date string from the provided list this spot belongs to (must match one of: ' + dates.join(', ') + ').' },
+                  arrivalTime: { type: Type.STRING, description: 'The recommended arrival time, e.g. "09:00 AM", "01:00 PM", "07:30 PM".' },
+                  estimatedCost: { type: Type.INTEGER, description: 'The average anticipated cost to enjoy this activity in local currency. Free things should be 0.' },
+                  lat: { type: Type.NUMBER, description: 'Physical latitude of the venue.' },
+                  lon: { type: Type.NUMBER, description: 'Physical longitude of the venue.' }
+                },
+                required: ['title', 'description', 'visitDate', 'arrivalTime', 'estimatedCost', 'lat', 'lon']
+              }
+            }
+          },
+          required: ['itinerary']
+        }
+      }
+    });
+
+    const text = response.text || '{}';
+    const parsed = cleanAndExtractJSON(text);
+    if (parsed && Array.isArray(parsed.itinerary)) {
+      setCached(cacheKey, parsed, 1000 * 60 * 60 * 24); // Cache for 24 hours
+      return res.json(parsed);
+    }
+    throw new Error('Invalid schema returned from Gemini');
+
+  } catch (err: any) {
+    cleanLogGeminiError('Generate Full Itinerary', err);
+    res.json({ error: 'fallback' });
+  }
+});
+
 // Helper function to thoroughly clean place and city names for successful search api indexing
 function cleanNameForWikiSearch(name: string): string {
   let cleaned = name || '';
@@ -867,14 +975,9 @@ async function fetchRealPlaceImages(placeName: string, city: string, category: s
     try {
       const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=4&format=json&origin=*`;
       
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
-
-      const res = await fetch(searchUrl, {
-        signal: controller.signal,
+      const res = await fetchWithTimeout(searchUrl, {
         headers: { 'User-Agent': 'TravelCompanionNomoApp/1.0 (altariqhd@gmail.com; context-ai) ProductionRealImagesFetcher' }
-      });
-      clearTimeout(timeout);
+      }, 1000);
 
       if (res.ok) {
         const searchData = await res.json();
@@ -884,9 +987,9 @@ async function fetchRealPlaceImages(placeName: string, city: string, category: s
           
           // Fetch main thumbnails of matching pages
           const detailsUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(pageTitles.join('|'))}&prop=pageimages&pithumbsize=600&format=json&origin=*`;
-          const detailsRes = await fetch(detailsUrl, {
+          const detailsRes = await fetchWithTimeout(detailsUrl, {
             headers: { 'User-Agent': 'TravelCompanionNomoApp/1.0 (altariqhd@gmail.com; context-ai) ProductionRealImagesFetcher' }
-          });
+          }, 1000);
           
           if (detailsRes.ok) {
             const detailsData = await detailsRes.json();
@@ -907,9 +1010,9 @@ async function fetchRealPlaceImages(placeName: string, city: string, category: s
           if (finalImages.length < 5) {
             const primaryTitle = pageTitles[0];
             const imagesUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(primaryTitle)}&generator=images&gimlimit=25&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*`;
-            const imagesRes = await fetch(imagesUrl, {
+            const imagesRes = await fetchWithTimeout(imagesUrl, {
               headers: { 'User-Agent': 'TravelCompanionNomoApp/1.0 (altariqhd@gmail.com; context-ai) ProductionRealImagesFetcher' }
-            });
+            }, 1000);
 
             if (imagesRes.ok) {
               const imagesData = await imagesRes.json();
@@ -945,9 +1048,9 @@ async function fetchRealPlaceImages(placeName: string, city: string, category: s
       if (finalImages.length >= 6) break;
       try {
         const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*`;
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: { 'User-Agent': 'TravelCompanionNomoApp/1.0 (altariqhd@gmail.com; context-ai) ProductionRealImagesFetcher' }
-        });
+        }, 1000);
         if (res.ok) {
           const data = await res.json();
           if (data.query && data.query.pages) {
@@ -990,14 +1093,9 @@ async function fetchRealPlaceImages(placeName: string, city: string, category: s
         if (finalImages.length >= 6) break;
         const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(ambQ)}&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url&iiurlwidth=600&format=json&origin=*`;
         
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
-
-        const res = await fetch(url, {
-          signal: controller.signal,
+        const res = await fetchWithTimeout(url, {
           headers: { 'User-Agent': 'TravelCompanionNomoApp/1.0 (altariqhd@gmail.com; context-ai) ProductionRealImagesFetcher' }
-        });
-        clearTimeout(timeout);
+        }, 1000);
 
         if (res.ok) {
           const data = await res.json();
@@ -1027,9 +1125,9 @@ async function fetchRealPlaceImages(placeName: string, city: string, category: s
     try {
       const cityLandmarksQuery = `${cleanCity} tourism travel attractions landmark scenic`;
       const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(cityLandmarksQuery)}&gsrlimit=8&prop=pageimages&pithumbsize=600&format=json&origin=*`;
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         headers: { 'User-Agent': 'TravelCompanionNomoApp/1.0 (altariqhd@gmail.com; context-ai) ProductionRealImagesFetcher' }
-      });
+      }, 1000);
       if (res.ok) {
         const data = await res.json();
         if (data.query && data.query.pages) {
@@ -1193,10 +1291,41 @@ app.post('/api/gemini/scout-cards', async (req, res) => {
     const city = destination.trim();
     const cityLower = city.toLowerCase();
     const cat = (category || 'cafes').toLowerCase();
-    const baseLat = lat ? Number(lat) : 14.5496; // Fallback to Manila BGC coordinates if empty
-    const baseLon = lon ? Number(lon) : 121.0436;
+    let baseLat = lat ? Number(lat) : 14.5496; // Fallback to Manila BGC coordinates if empty
+    let baseLon = lon ? Number(lon) : 121.0436;
 
-    // Check server in-memory cache to load cards of specific categories instantly
+    // Auto-healing coordinates if they look like the default Tokyo fallback or Manila fallback, but the destination doesn't match
+    const isTokyoFallback = Math.abs(baseLat - 35.6762) < 0.01 && Math.abs(baseLon - 139.6503) < 0.01;
+    const isManilaFallback = Math.abs(baseLat - 14.5496) < 0.01 && Math.abs(baseLon - 121.0436) < 0.01;
+    const destIsTokyo = cityLower.includes('tokyo') || cityLower.includes('japan') || cityLower.includes('kyoto');
+    const destIsManila = cityLower.includes('manila') || cityLower.includes('philippines') || cityLower.includes('bgc');
+
+    if ((isTokyoFallback && !destIsTokyo) || (isManilaFallback && !destIsManila) || (!lat || !lon)) {
+      // Resolve coordinates using offline search fallback or live geocoding
+      const offlineMatches = getOfflineSearchFallback(city, 1);
+      if (offlineMatches && offlineMatches.length > 0) {
+        baseLat = Number(offlineMatches[0].lat);
+        baseLon = Number(offlineMatches[0].lon);
+      } else {
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1`;
+          const res = await fetchWithTimeout(url, {
+            headers: { 'User-Agent': 'NomoTravelCurator/1.0 (altariqhd@gmail.com; context-ai-studio)' }
+          }, 2000);
+          if (res.ok) {
+            const searchData = await res.json();
+            if (Array.isArray(searchData) && searchData.length > 0) {
+              baseLat = parseFloat(searchData[0].lat);
+              baseLon = parseFloat(searchData[0].lon);
+            }
+          }
+        } catch (err) {
+          console.warn(`[Scout Geocode Auto-healing] Failed to fetch Nominatim for Auto-healing: "${city}"`, err);
+        }
+      }
+    }
+
+    // Check server in-memory cache to load cards of specific categories instantly (AFTER auto-healing coordinates)
     const cacheKey = `gemini:scout:${city}:${cat}:${baseLat.toFixed(3)}:${baseLon.toFixed(3)}`;
     const cached = getCached(cacheKey);
     if (cached) {
@@ -1264,7 +1393,7 @@ app.post('/api/gemini/scout-cards', async (req, res) => {
 
       try {
         const response = await ai.models.generateContent({
-          model: 'gemini-3.5-flash',
+          model: 'gemini-2.5-flash',
           contents: prompt,
           config: {
             responseMimeType: 'application/json'

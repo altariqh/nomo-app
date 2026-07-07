@@ -42,6 +42,8 @@ import { Trip, ExpenseEntry, ExpenseCategory, EmotionalTag, TravelPersonality, C
 import ReactMarkdown from 'react-markdown';
 import SignupScreen from './components/SignupScreen';
 import OnboardingScreen from './components/OnboardingScreen';
+import SplashScreen from './components/SplashScreen';
+import LandingCarouselScreen from './components/LandingCarouselScreen';
 import ProfileTab from './components/ProfileTab';
 import JournalTab from './components/JournalTab';
 import LedgerTab from './components/LedgerTab';
@@ -68,6 +70,17 @@ function getDatesInRange(startDateStr: string, endDateStr: string): string[] {
     safetyCount++;
   }
   return dates;
+}
+
+function formatAmountWithCommas(val: string | number): string {
+  if (val === undefined || val === null) return '';
+  let str = val.toString().replace(/[^0-9.]/g, '');
+  const parts = str.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (parts.length > 2) {
+    return parts[0] + '.' + parts.slice(1).join('');
+  }
+  return parts.join('.');
 }
 
 function formatTime12h(timeStr?: string): string {
@@ -250,7 +263,14 @@ function getPresetCoordsForDest(dest: string): { lat: number; lon: number } {
   if (d.includes('paris')) return { lat: 48.8566, lon: 2.3522 };
   if (d.includes('bangkok')) return { lat: 13.7563, lon: 100.5018 };
   if (d.includes('bali') || d.includes('seminyak') || d.includes('ubud')) return { lat: -8.6853, lon: 115.1584 };
-  return { lat: 35.6762, lon: 139.6503 }; // Standard fallback center
+  if (d.includes('milan')) return { lat: 45.4642, lon: 9.1900 };
+  if (d.includes('rome')) return { lat: 41.9028, lon: 12.4964 };
+  if (d.includes('london')) return { lat: 51.5074, lon: -0.1278 };
+  if (d.includes('new york')) return { lat: 40.7128, lon: -74.0060 };
+  if (d.includes('seoul')) return { lat: 37.5665, lon: 126.9780 };
+  if (d.includes('singapore')) return { lat: 1.3521, lon: 103.8198 };
+  if (d.includes('manila') || d.includes('bgc')) return { lat: 14.5496, lon: 121.0436 };
+  return { lat: 45.4642, lon: 9.1900 }; // Use Milan coordinates as the absolute default fallback if nothing matches
 }
 
 function getIdealBudgetForDuration(days: number, currency: string): number {
@@ -323,6 +343,18 @@ function calculateDebts(trip: Trip): Debt[] {
 }
 
 export default function App() {
+  // Splash Screen and Landing Features states
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+  const [showLanding, setShowLanding] = useState<boolean>(true);
+  const [landingIsSignIn, setLandingIsSignIn] = useState<boolean>(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // User authentication and dynamic onboarding state
   const [user, setUser] = useState<{
     name: string;
@@ -396,6 +428,31 @@ export default function App() {
   // Profile settings modal state
   const [showProfileSettingsModal, setShowProfileSettingsModal] = useState(false);
 
+  const [sharedTripToImport, setSharedTripToImport] = useState<Trip | null>(null);
+
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash;
+      if (hash.startsWith('#shared=')) {
+        try {
+          const base64 = hash.replace('#shared=', '');
+          const decoded = decodeURIComponent(atob(base64));
+          const parsed = JSON.parse(decoded) as Trip;
+          
+          if (parsed.id && parsed.name && parsed.destination) {
+            setSharedTripToImport(parsed);
+          }
+        } catch (e) {
+          console.error('Failed to parse shared trip from URL', e);
+        }
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    };
+    handleHash();
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
+
   const handleUpdateTrip = (updatedTrip: Trip) => {
     setTrips(prev => prev.map(t => t.id === updatedTrip.id ? updatedTrip : t));
   };
@@ -418,7 +475,7 @@ export default function App() {
     currency: 'PHP',
     membersString: user ? `${user.name}, Emma, Ryu` : 'Sophie, Emma, Ryu',
     startDate: '2026-06-01',
-    endDate: '2026-06-08',
+    endDate: '',
     accommodationType: 'hotel' as 'hotel' | 'airbnb' | 'apartment',
     accommodationName: '',
     latitude: null as number | null,
@@ -599,6 +656,7 @@ export default function App() {
   const [initialItinerary, setInitialItinerary] = useState<Array<{ id: string; title: string; description: string; estimatedCost: number; arrivalTime?: string; visitDate?: string; lat?: number; lon?: number }>>([]);
   const [suggestedSpots, setSuggestedSpots] = useState<Array<{ title: string; description: string; estimatedCost: number; lat?: number; lon?: number }>>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [loadingAutofill, setLoadingAutofill] = useState(false);
   const [itineraryForm, setItineraryForm] = useState<{ title: string; description: string; estimatedCost: string; arrivalTime: string; lat?: number; lon?: number }>({ title: '', description: '', estimatedCost: '', arrivalTime: '' });
   const [showOptionalItineraryFields, setShowOptionalItineraryFields] = useState(false);
 
@@ -653,9 +711,9 @@ export default function App() {
   // Automatically switch active tab during the walk-through tour
   useEffect(() => {
     if (tourStep === 1) {
-      setActiveTab('journal');
-    } else if (tourStep === 2) {
       setActiveTab('ledger');
+    } else if (tourStep === 2) {
+      setActiveTab('journal');
     } else if (tourStep === 3) {
       setActiveTab('insights');
     } else if (tourStep === 4) {
@@ -666,6 +724,40 @@ export default function App() {
   // Save trips to local storage
   useEffect(() => {
     localStorage.setItem('nomo_trips_v3', JSON.stringify(trips));
+  }, [trips]);
+
+  // Auto-heal trips with Tokyo or Manila fallback coordinates if destination doesn't match
+  useEffect(() => {
+    let hasChanges = false;
+    const healedTrips = trips.map(t => {
+      const destLower = (t.destination || '').toLowerCase();
+      const latVal = t.latitude ? Number(t.latitude) : 0;
+      const lonVal = t.longitude ? Number(t.longitude) : 0;
+
+      const isTokyoCoords = Math.abs(latVal - 35.6762) < 0.01 && Math.abs(lonVal - 139.6503) < 0.01;
+      const isManilaCoords = Math.abs(latVal - 14.5496) < 0.01 && Math.abs(lonVal - 121.0436) < 0.01;
+
+      const destIsTokyo = destLower.includes('tokyo') || destLower.includes('japan') || destLower.includes('kyoto');
+      const destIsManila = destLower.includes('manila') || destLower.includes('philippines') || destLower.includes('bgc');
+
+      if ((isTokyoCoords && !destIsTokyo) || (isManilaCoords && !destIsManila) || !t.latitude || !t.longitude) {
+        // Resolve a better coordinate preset
+        const preset = getPresetCoordsForDest(t.destination);
+        if (preset && (preset.lat !== latVal || preset.lon !== lonVal)) {
+          hasChanges = true;
+          return {
+            ...t,
+            latitude: preset.lat,
+            longitude: preset.lon
+          };
+        }
+      }
+      return t;
+    });
+
+    if (hasChanges) {
+      setTrips(healedTrips);
+    }
   }, [trips]);
 
   // Save community reviews
@@ -727,7 +819,7 @@ export default function App() {
       destination: newTripForm.destination,
       description: newTripForm.description || `Adventures in ${newTripForm.destination}`,
       coverImage: STOCK_COVERS[Math.floor(Math.random() * STOCK_COVERS.length)],
-      budget: Number(newTripForm.budget) || 1000,
+      budget: Number(String(newTripForm.budget).replace(/,/g, '')) || 1000,
       currency: newTripForm.currency.toUpperCase(),
       startDate: newTripForm.startDate,
       endDate: newTripForm.endDate,
@@ -859,7 +951,7 @@ export default function App() {
       id: `itinerary-${Date.now()}`,
       title: itineraryForm.title,
       description: itineraryForm.description,
-      estimatedCost: Number(itineraryForm.estimatedCost) || 0,
+      estimatedCost: Number(String(itineraryForm.estimatedCost).replace(/,/g, '')) || 0,
       arrivalTime: itineraryForm.arrivalTime || undefined,
       visitDate: currentDateStr,
       lat: itineraryForm.lat,
@@ -878,7 +970,7 @@ export default function App() {
     const entry: ExpenseEntry = {
       id: `exp-${Date.now()}`,
       title: newExpenseForm.title,
-      amount: Number(newExpenseForm.amount) || 0,
+      amount: Number(String(newExpenseForm.amount).replace(/,/g, '')) || 0,
       category: newExpenseForm.category,
       date: newExpenseForm.date,
       emotionalTag: newExpenseForm.emotionalTag,
@@ -1038,9 +1130,43 @@ export default function App() {
   // Calculate Debts Settling
   const activeDebts = activeTrip ? calculateDebts(activeTrip) : [];
 
+  // 1. Splash Screen Display
+  if (showSplash) {
+    return <SplashScreen />;
+  }
+
+  // 2. Non-Authenticated Flow: Landing Carousel -> Sign In/Sign Up
   if (!user) {
+    if (showLanding) {
+      return (
+        <LandingCarouselScreen 
+          onGetStarted={(isSignIn) => {
+            setLandingIsSignIn(isSignIn);
+            setShowLanding(false);
+          }}
+          onSkipToDemo={() => {
+            const demoUser = {
+              name: 'Sophie',
+              email: 'sophie@nomad.com',
+              specialty: 'Remote Creative',
+              seedingMood: 'Joyful',
+              password: 'coffee2026',
+              profilePicture: ''
+            };
+            setUser(demoUser);
+            localStorage.setItem('nomo_user_v3', JSON.stringify(demoUser));
+            setIsOnboardingActive(false);
+            localStorage.setItem('nomo_onboarding_done_v3', 'true');
+            setTourStep(1);
+          }}
+        />
+      );
+    }
+
     return (
       <SignupScreen 
+        initialIsSignIn={landingIsSignIn}
+        onBackToLanding={() => setShowLanding(true)}
         onSignupComplete={(userData, isNewUser) => {
           setUser(userData);
           const onboardingDone = localStorage.getItem('nomo_onboarding_done_v3') === 'true';
@@ -1057,7 +1183,7 @@ export default function App() {
             specialty: 'Remote Creative',
             seedingMood: 'Joyful',
             password: 'coffee2026',
-            profilePicture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80'
+            profilePicture: ''
           };
           setUser(demoUser);
           localStorage.setItem('nomo_user_v3', JSON.stringify(demoUser));
@@ -1127,20 +1253,6 @@ export default function App() {
                       <Share2 className="w-3.5 h-3.5 stroke-[2.5]" />
                       <span>Sync</span>
                     </button>
-
-                    {/* Delete Current Journey Button */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (activeTrip) {
-                          setJourneyToDelete(activeTrip);
-                        }
-                      }}
-                      className="p-1 px-1.5 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 active:scale-95 transition-all shrink-0 border border-transparent cursor-pointer"
-                      title="Delete current journey"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
                   </>
                 )}
 
@@ -1162,8 +1274,9 @@ export default function App() {
                           (e.target as HTMLElement).style.display = 'none';
                         }}
                       />
-                    ) : null}
-                    <span className="only:block hidden">{user.name[0]}</span>
+                    ) : (
+                      <User className="w-3.5 h-3.5 text-white stroke-[2]" />
+                    )}
                   </button>
                 )}
               </div>
@@ -1173,22 +1286,14 @@ export default function App() {
             <div className="flex items-center justify-between py-1.5 border-t border-[#F8F6F2] text-xs">
               <div className="flex items-center gap-2">
                 <span className="text-[9px] font-mono text-stone-400 uppercase font-bold tracking-wider select-none shrink-0">Trip:</span>
-                <div className="relative flex items-center">
-                  <select
-                    value={activeTripId}
-                    onChange={(e) => setActiveTripId(e.target.value)}
-                    className="appearance-none bg-stone-50 border border-stone-200 hover:border-stone-300 rounded-lg pl-2 pr-7 py-0.5 text-[11px] font-serif font-black text-[#5A5A40] focus:outline-none focus:ring-1 focus:ring-[#5A5A40] cursor-pointer"
-                  >
-                    {trips.map(curr => (
-                      <option key={curr.id} value={curr.id}>
-                        🚀 {curr.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-stone-500">
-                    <ChevronDown className="w-3.5 h-3.5 stroke-[3]" />
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTripListModal(true)}
+                  className="flex items-center gap-1 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-lg px-2 py-0.5 text-[11px] font-serif font-black text-[#5A5A40] transition-all cursor-pointer"
+                >
+                  <span>🚀 {activeTrip ? activeTrip.name : 'Select Voyage'}</span>
+                  <ChevronDown className="w-3.5 h-3.5 stroke-[3] text-stone-500" />
+                </button>
               </div>
 
               <button 
@@ -1368,28 +1473,6 @@ export default function App() {
                           ))}
                         </div>
                       )}
-
-                      <div className="flex gap-1.5 mt-1.5 items-center">
-                        <span className="text-[8px] font-mono text-stone-400 uppercase font-bold">Presets:</span>
-                        {['Tokyo', 'Kyoto', 'Paris', 'Bangkok'].map(p => (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => {
-                              setNewTripForm(prev => ({
-                                  ...prev,
-                                  destination: `${p}, Global`,
-                                  name: prev.name ? prev.name : `${p} Nomad Scout`
-                              }));
-                              setDestPredictions([]);
-                              setDestFocused(false);
-                            }}
-                            className="text-[8px] font-mono bg-stone-100 hover:bg-stone-200 text-stone-600 px-1.5 py-0.5 rounded animate-none"
-                          >
-                            {p}
-                          </button>
-                        ))}
-                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -1414,41 +1497,43 @@ export default function App() {
                     </div>
 
                     {/* Quick duration presets representing Clever and Intuitive dates logic */}
-                    <div className="mt-1">
-                      <span className="text-[8px] font-mono text-stone-400 uppercase font-black tracking-wide block mb-1">Quick days:</span>
-                      <div className="flex gap-1.5">
-                        {[3, 5, 7, 14].map((days) => {
-                          return (
-                            <button
-                              key={days}
-                              type="button"
-                              onClick={() => {
-                                const startStr = newTripForm.startDate || new Date().toISOString().split('T')[0];
-                                const startD = new Date(startStr);
-                                const endD = new Date(startD.getTime() + (days - 1) * 24 * 60 * 60 * 1000);
-                                const endStr = endD.toISOString().split('T')[0];
-                                
-                                // Detect preset coordinates & suggest ideal budget
-                                const presetCoords = getPresetCoordsForDest(newTripForm.destination);
-                                const suggestedBudget = getIdealBudgetForDuration(days, newTripForm.currency);
+                    {!newTripForm.endDate && (
+                      <div className="mt-1">
+                        <span className="text-[8px] font-mono text-stone-400 uppercase font-black tracking-wide block mb-1">Quick days:</span>
+                        <div className="flex gap-1.5">
+                          {[3, 5, 7, 14].map((days) => {
+                            return (
+                              <button
+                                key={days}
+                                type="button"
+                                onClick={() => {
+                                  const startStr = newTripForm.startDate || new Date().toISOString().split('T')[0];
+                                  const startD = new Date(startStr);
+                                  const endD = new Date(startD.getTime() + (days - 1) * 24 * 60 * 60 * 1000);
+                                  const endStr = endD.toISOString().split('T')[0];
+                                  
+                                  // Detect preset coordinates & suggest ideal budget
+                                  const presetCoords = getPresetCoordsForDest(newTripForm.destination);
+                                  const suggestedBudget = getIdealBudgetForDuration(days, newTripForm.currency);
 
-                                setNewTripForm(prev => ({
-                                  ...prev,
-                                  startDate: startStr,
-                                  endDate: endStr,
-                                  latitude: prev.latitude || presetCoords.lat,
-                                  longitude: prev.longitude || presetCoords.lon,
-                                  budget: suggestedBudget.toString()
-                                }));
-                              }}
-                              className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-600 text-[10px] py-1 rounded-lg border border-stone-200 transition-all font-mono font-bold active:scale-95 text-center"
-                            >
-                              {days} Days
-                            </button>
-                          );
-                        })}
+                                  setNewTripForm(prev => ({
+                                    ...prev,
+                                    startDate: startStr,
+                                    endDate: endStr,
+                                    latitude: prev.latitude || presetCoords.lat,
+                                    longitude: prev.longitude || presetCoords.lon,
+                                    budget: suggestedBudget.toString()
+                                  }));
+                                }}
+                                className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-600 text-[10px] py-1 rounded-lg border border-stone-200 transition-all font-mono font-bold active:scale-95 text-center"
+                              >
+                                {days} Days
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <button
                       type="button"
@@ -1480,11 +1565,12 @@ export default function App() {
                       <div>
                         <label className="text-[9px] font-mono uppercase text-stone-500 block mb-0.5 font-bold">Total budget limit</label>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           required
-                          placeholder="e.g. 350000"
-                          value={newTripForm.budget}
-                          onChange={(e) => setNewTripForm(prev => ({ ...prev, budget: e.target.value }))}
+                          placeholder="e.g. 350,000"
+                          value={formatAmountWithCommas(newTripForm.budget)}
+                          onChange={(e) => setNewTripForm(prev => ({ ...prev, budget: formatAmountWithCommas(e.target.value) }))}
                           className="w-full bg-[#FAF8F5] border border-stone-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-[#5A5A40] focus:outline-none"
                         />
                       </div>
@@ -1655,27 +1741,73 @@ export default function App() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => {
+                          disabled={loadingAutofill}
+                          onClick={async () => {
+                            setLoadingAutofill(true);
+                            const playSuccessChime = () => {
+                              try {
+                                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                                const osc = audioCtx.createOscillator();
+                                const gain = audioCtx.createGain();
+                                osc.connect(gain);
+                                gain.connect(audioCtx.destination);
+                                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+                                osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.2); // G5
+                                gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+                                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+                                osc.start();
+                                osc.stop(audioCtx.currentTime + 0.4);
+                              } catch (e) {}
+                            };
+
+                            try {
+                              const response = await fetch('/api/gemini/generate-full-itinerary', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  destination: newTripForm.destination,
+                                  dates: datesList,
+                                  budget: newTripForm.budget,
+                                  currency: newTripForm.currency,
+                                  lat: newTripForm.latitude,
+                                  lon: newTripForm.longitude
+                                })
+                              });
+                              if (response.ok) {
+                                const data = await response.json();
+                                if (data && Array.isArray(data.itinerary)) {
+                                  const formatted = data.itinerary.map((item: any) => ({
+                                    id: `spot-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+                                    title: item.title,
+                                    description: item.description,
+                                    visitDate: item.visitDate,
+                                    arrivalTime: item.arrivalTime,
+                                    estimatedCost: Number(item.estimatedCost) || 0,
+                                    lat: item.lat || undefined,
+                                    lon: item.lon || undefined,
+                                    visited: false,
+                                    review: ''
+                                  }));
+                                  setInitialItinerary(formatted);
+                                  playSuccessChime();
+                                  setLoadingAutofill(false);
+                                  return;
+                                }
+                              }
+                            } catch (err) {
+                              console.warn('[Autofill API Failure] Falling back to high-fidelity offline unique presets:', err);
+                            }
+
+                            // High-fidelity fallback that guarantees 100% uniqueness per day
                             const generated = generatePresetItinerary(newTripForm.destination, datesList);
                             setInitialItinerary(generated);
-                            try {
-                              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                              const osc = audioCtx.createOscillator();
-                              const gain = audioCtx.createGain();
-                              osc.connect(gain);
-                              gain.connect(audioCtx.destination);
-                              osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
-                              osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
-                              osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.2); // G5
-                              gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
-                              gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
-                              osc.start();
-                              osc.stop(audioCtx.currentTime + 0.4);
-                            } catch (e) {}
+                            playSuccessChime();
+                            setLoadingAutofill(false);
                           }}
-                          className="px-3 py-2 bg-[#5A5A40] text-white hover:bg-[#4a4a34] text-[9px] uppercase font-mono font-black rounded-xl shadow-sm tracking-wider transition-all whitespace-nowrap cursor-pointer self-stretch sm:self-auto text-center"
+                          className="px-3 py-2 bg-[#5A5A40] text-white hover:bg-[#4a4a34] text-[9px] uppercase font-mono font-black rounded-xl shadow-sm tracking-wider transition-all whitespace-nowrap cursor-pointer self-stretch sm:self-auto text-center disabled:opacity-50"
                         >
-                          🚀 Autofill Planner!
+                          {loadingAutofill ? 'Curating Genuine Itinerary...' : '🚀 Autofill Planner!'}
                         </button>
                       </div>
 
@@ -1794,10 +1926,11 @@ export default function App() {
                               <div>
                                 <label className="text-[8.5px] font-mono uppercase text-stone-500 block">Estimated Cost</label>
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="decimal"
                                   placeholder="0"
-                                  value={itineraryForm.estimatedCost}
-                                  onChange={(e) => setItineraryForm(prev => ({ ...prev, estimatedCost: e.target.value }))}
+                                  value={formatAmountWithCommas(itineraryForm.estimatedCost)}
+                                  onChange={(e) => setItineraryForm(prev => ({ ...prev, estimatedCost: formatAmountWithCommas(e.target.value) }))}
                                   className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-[#5A5A40] focus:outline-none text-center"
                                 />
                               </div>
@@ -1861,9 +1994,10 @@ export default function App() {
                                         <div>
                                           <label className="text-[8.5px] font-mono uppercase text-[#8C857E] block font-bold">Edit Cost</label>
                                           <input
-                                            type="number"
-                                            value={editingItineraryForm.estimatedCost}
-                                            onChange={(e) => setEditingItineraryForm(p => ({ ...p, estimatedCost: e.target.value }))}
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={formatAmountWithCommas(editingItineraryForm.estimatedCost)}
+                                            onChange={(e) => setEditingItineraryForm(p => ({ ...p, estimatedCost: formatAmountWithCommas(e.target.value) }))}
                                             className="w-full bg-[#FAF8F5] border border-stone-200 rounded px-2 py-1 focus:outline-none"
                                           />
                                         </div>
@@ -1906,7 +2040,7 @@ export default function App() {
                                               ...i,
                                               title: editingItineraryForm.title,
                                               description: editingItineraryForm.description,
-                                              estimatedCost: Number(editingItineraryForm.estimatedCost) || 0,
+                                              estimatedCost: Number(String(editingItineraryForm.estimatedCost).replace(/,/g, '')) || 0,
                                               arrivalTime: editingItineraryForm.arrivalTime,
                                               visitDate: editingItineraryForm.visitDate
                                             } : i));
@@ -2101,33 +2235,12 @@ export default function App() {
               )}
 
               {activeTab === 'insights' && (
-                trips.length === 0 ? (
-                  <div className="flex flex-col justify-center items-center text-center p-8 h-full bg-white animate-fade-in relative">
-                    <div className="p-4 rounded-full bg-[#EAE0D8] text-[#5A5A40] mb-4 mt-4">
-                      <Sparkles className="w-10 h-10 stroke-[1.5]" />
-                    </div>
-                    <h3 className="font-serif italic text-base text-[#3C3836] font-bold">Uncharted Travel Personality</h3>
-                    <p className="text-[11px] text-[#8C857E] mt-2 max-w-xs leading-relaxed">
-                      Nomo requires at least one active trip with expense tags to compute your travel persona and generate cozy diary scrapbooks.
-                    </p>
-                    <button
-                      onClick={() => {
-                        setIsCreatingTrip(true);
-                      }}
-                      className="mt-6 px-5 py-2.5 bg-[#5A5A40] text-white font-bold text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#4a4a34] active:scale-95 transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <span>Build First Journey</span>
-                      <Plus className="w-3.5 h-3.5 font-bold" />
-                    </button>
-                  </div>
-                ) : (
-                  <InsightsTab 
-                    activeTrip={activeTrip!}
-                    onUpdateTrip={handleUpdateTrip}
-                    communityReviews={communityReviews}
-                    onNavigateToTab={(tab) => setActiveTab(tab)}
-                  />
-                )
+                <InsightsTab 
+                  activeTrip={activeTrip || undefined}
+                  onUpdateTrip={handleUpdateTrip}
+                  communityReviews={communityReviews}
+                  onNavigateToTab={(tab) => setActiveTab(tab)}
+                />
               )}
 
               {activeTab === 'profile' && user && (
@@ -2254,12 +2367,12 @@ export default function App() {
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
                     <span className="p-1 rounded-md bg-[#EAE0D8] text-[#5A5A40]">
-                      <BookOpen className="w-3.5 h-3.5" />
+                      <Wallet className="w-3.5 h-3.5" />
                     </span>
-                    <h4 className="font-serif italic font-bold text-xs text-[#3C3836]">🌸 Community Spot Reviews</h4>
+                    <h4 className="font-serif italic font-bold text-xs text-[#3C3836]">🗺️ Travel Planner & Itinerary</h4>
                   </div>
                   <p className="text-[11px] text-[#8C857E] leading-relaxed">
-                    This is your collective check-in space. Exchange boutique spot recommendations, write aesthetic coffee reviews, and filter other verified ratings of visited places from fellow travelers.
+                    The heart of your trip. Plan daily agendas, log expenditures with journal highlights, rate visited spots, and split expenses with your travel partners seamlessly.
                   </p>
                 </div>
               )}
@@ -2268,12 +2381,12 @@ export default function App() {
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
                     <span className="p-1 rounded-md bg-[#EAE0D8] text-[#5A5A40]">
-                      <Wallet className="w-3.5 h-3.5" />
+                      <BookOpen className="w-3.5 h-3.5" />
                     </span>
-                    <h4 className="font-serif italic font-bold text-xs text-[#3C3836]">🗺️ Travel Planner & Itinerary</h4>
+                    <h4 className="font-serif italic font-bold text-xs text-[#3C3836]">🌸 Community Spot Reviews & Recaps</h4>
                   </div>
                   <p className="text-[11px] text-[#8C857E] leading-relaxed">
-                    The heart of your trip. Plan daily agendas, log expenditures with journal highlights, rate visited spots, and split expenses with your travel partners seamlessly.
+                    This is your collective check-in space. Exchange boutique spot recommendations, write aesthetic coffee reviews, filter other verified ratings, and view gorgeous travel story recaps.
                   </p>
                 </div>
               )}
@@ -2336,19 +2449,25 @@ export default function App() {
 
             {/* Bouncing tab overlay arrows */}
             <div className="w-full flex justify-around select-none pointer-events-none pb-[12px] px-1">
-              <div className={`w-14 flex justify-center transition-all duration-300 ${tourStep === 1 ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
-                <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-t-[#FAF9F7] border-l-transparent border-r-transparent animate-bounce" />
+              <div className="w-14 flex justify-center">
+                {tourStep === 1 ? (
+                  <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-t-[#FAF9F7] border-l-transparent border-r-transparent animate-bounce" />
+                ) : <div className="h-1" />}
               </div>
-              <div className={`w-14 flex justify-center transition-all duration-300 ${tourStep === 2 ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
-                <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-t-[#FAF9F7] border-l-transparent border-r-transparent animate-bounce-short" />
+              <div className="w-14 flex justify-center">
+                {tourStep === 2 ? (
+                  <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-t-[#FAF9F7] border-l-transparent border-r-transparent animate-bounce" />
+                ) : <div className="h-1" />}
               </div>
-              {/* quick add spacer */}
-              <div className="w-12 h-1 shrink-0" />
-              <div className={`w-14 flex justify-center transition-all duration-300 ${tourStep === 3 ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
-                <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-t-[#FAF9F7] border-l-transparent border-r-transparent animate-bounce" />
+              <div className="w-14 flex justify-center">
+                {tourStep === 3 ? (
+                  <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-t-[#FAF9F7] border-l-transparent border-r-transparent animate-bounce" />
+                ) : <div className="h-1" />}
               </div>
-              <div className={`w-14 flex justify-center transition-all duration-300 ${tourStep === 4 ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
-                <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-t-[#FAF9F7] border-l-transparent border-r-transparent animate-bounce" />
+              <div className="w-14 flex justify-center">
+                {tourStep === 4 ? (
+                  <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-t-[#FAF9F7] border-l-transparent border-r-transparent animate-bounce" />
+                ) : <div className="h-1" />}
               </div>
             </div>
           </div>
@@ -2479,11 +2598,17 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 1: TRIP LISTS & MANAGEMENT */}
+      {/* MODAL 1: TRIP LISTS & MANAGEMENT (BOTTOM SHEET) */}
       {showTripListModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl w-full max-w-sm p-5 border border-[#F1EFE9] shadow-2xl text-left space-y-4 animate-fade-in">
-            <div className="flex justify-between items-center pb-2 border-b border-stone-100">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-end justify-center">
+          {/* Backdrop Click to Close */}
+          <div className="absolute inset-0" onClick={() => setShowTripListModal(false)} />
+
+          <div className="bg-white rounded-t-[32px] w-full max-w-[420px] p-5 pb-8 border-t-2 border-[#5A5A40]/10 shadow-2xl relative z-10 max-h-[85vh] flex flex-col overflow-hidden animate-slide-up">
+            {/* Elegant Grab Handle Indicator */}
+            <div className="w-12 h-1 bg-stone-200 rounded-full mx-auto mb-4 shrink-0" />
+
+            <div className="flex justify-between items-center pb-2 border-b border-stone-100 shrink-0">
               <h3 className="font-serif italic font-bold text-[#5A5A40] text-sm">Your Travel Journeys</h3>
               <button 
                 type="button" 
@@ -2494,7 +2619,7 @@ export default function App() {
               </button>
             </div>
 
-            <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+            <div className="space-y-2.5 my-3 overflow-y-auto pr-1 flex-1">
               {trips.map((t) => {
                 const isActive = t.id === activeTripId;
                 const spentAmount = t.expenseEntries?.reduce((sum, entry) => sum + entry.amount, 0) || 0;
@@ -2537,7 +2662,7 @@ export default function App() {
                         e.stopPropagation();
                         setJourneyToDelete(t);
                       }}
-                      className="p-1 px-1.5 rounded-xl hover:bg-red-55 text-stone-400 hover:text-red-500 active:scale-95 transition-all shrink-0 cursor-pointer"
+                      className="p-1 px-1.5 rounded-xl hover:bg-red-50 text-stone-400 hover:text-red-500 active:scale-95 transition-all shrink-0 cursor-pointer"
                       title="Delete journey"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -2553,7 +2678,7 @@ export default function App() {
                 setShowTripListModal(false);
                 setIsCreatingTrip(true);
               }}
-              className="w-full py-2 bg-[#5A5A40] hover:bg-[#4a4a34] text-white text-[10px] font-mono uppercase tracking-wider font-extrabold rounded-xl transition-all flex items-center justify-center gap-1"
+              className="w-full py-2 bg-[#5A5A40] hover:bg-[#4a4a34] text-white text-[10px] font-mono uppercase tracking-wider font-extrabold rounded-xl transition-all flex items-center justify-center gap-1 shrink-0 mt-2"
             >
               <Plus className="w-4 h-4" />
               <span>Chart a New Journey Page</span>
@@ -2633,11 +2758,12 @@ export default function App() {
                     <div>
                       <label className="text-[10px] font-mono uppercase text-[#8C857E] font-bold block mb-1">Cost Amount ({activeTrip.currency})</label>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         required
-                        placeholder="e.g. 1500"
-                        value={newExpenseForm.amount}
-                        onChange={(e) => setNewExpenseForm(prev => ({ ...prev, amount: e.target.value }))}
+                        placeholder="e.g. 1,500"
+                        value={formatAmountWithCommas(newExpenseForm.amount)}
+                        onChange={(e) => setNewExpenseForm(prev => ({ ...prev, amount: formatAmountWithCommas(e.target.value) }))}
                         className="w-full bg-[#F3F2EE] border border-[#E7E5E4] rounded-xl px-3.5 py-2.5 text-xs focus:ring-1 focus:ring-[#5A5A40] focus:outline-none focus:bg-white text-[#3C3836] font-semibold"
                       />
                     </div>
@@ -2963,13 +3089,27 @@ export default function App() {
                 <span className="text-[7.5px] font-mono uppercase tracking-widest text-[#5A5A40] font-black block mb-1">Trip Itinerary Link:</span>
                 <div className="flex gap-1.5 mt-1 items-center bg-white p-1.5 rounded-xl border border-stone-200">
                   <span className="text-[10px] font-mono text-stone-500 select-all truncate flex-1">
-                    https://nomo.travel/sync/{activeTrip.id}
+                    {(() => {
+                      try {
+                        const tripJson = JSON.stringify(activeTrip);
+                        const base64 = btoa(encodeURIComponent(tripJson));
+                        return `${window.location.origin}/#shared=${base64}`;
+                      } catch(e) {
+                        return `${window.location.origin}/#shared=error`;
+                      }
+                    })()}
                   </span>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(`https://nomo.travel/sync/${activeTrip.id}`);
-                      alert('Share link copied to clipboard successfully!');
+                      try {
+                        const tripJson = JSON.stringify(activeTrip);
+                        const base64 = btoa(encodeURIComponent(tripJson));
+                        navigator.clipboard.writeText(`${window.location.origin}/#shared=${base64}`);
+                        alert('Share link copied to clipboard successfully!');
+                      } catch(e) {
+                        alert('Failed to generate share link');
+                      }
                     }}
                     className="p-1 px-1.5 bg-[#5A5A40] hover:bg-[#4a4a34] text-white text-[9px] font-mono uppercase font-black rounded-lg transition-colors cursor-pointer"
                   >
@@ -2982,7 +3122,62 @@ export default function App() {
         </div>
       )}
 
+      {/* Shared Trip Import Modal */}
+      {sharedTripToImport && (
+        <div className="fixed inset-0 bg-black/60 z-[100] backdrop-blur-md flex items-center justify-center p-4 sm:p-6">
+          <div className="bg-white rounded-[24px] w-full max-w-sm overflow-hidden shadow-2xl relative flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-5 flex-1 overflow-y-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-serif font-black italic text-[#5A5A40] flex items-center gap-2">
+                  <Share2 className="w-4 h-4 text-[#5A5A40]" />
+                  Shared Itinerary Received!
+                </h3>
+              </div>
 
+              <p className="text-xs text-stone-500 mb-6">
+                Someone shared a trip itinerary with you. Would you like to import <strong>{sharedTripToImport.name}</strong> to your Nomad Passport?
+              </p>
+
+              <div className="p-3 bg-[#FAF8F5] rounded-2xl border border-stone-200">
+                <div className="text-[10px] font-mono text-stone-500 font-bold mb-1">TRIP DETAILS:</div>
+                <div className="text-sm font-bold text-stone-800">{sharedTripToImport.name}</div>
+                <div className="text-xs text-stone-600">{sharedTripToImport.destination}</div>
+                <div className="text-xs text-stone-600 mt-1">
+                  {sharedTripToImport.itinerary?.length || 0} Places to visit
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-stone-100 bg-[#FAF9F7] flex gap-2">
+              <button
+                onClick={() => setSharedTripToImport(null)}
+                className="flex-1 py-2.5 bg-stone-200 hover:bg-stone-300 text-stone-600 text-[10px] font-mono uppercase font-black tracking-widest rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  // Check if already exists
+                  const exists = trips.find(t => t.id === sharedTripToImport.id);
+                  if (exists) {
+                    setActiveTripId(sharedTripToImport.id);
+                    setSharedTripToImport(null);
+                    alert('Trip already exists and is now active.');
+                  } else {
+                    setTrips(prev => [sharedTripToImport, ...prev]);
+                    setActiveTripId(sharedTripToImport.id);
+                    setSharedTripToImport(null);
+                    try { playSuccessChime(); } catch(e) {}
+                  }
+                }}
+                className="flex-1 py-2.5 bg-[#5A5A40] hover:bg-[#4a4a34] text-white text-[10px] font-mono uppercase font-black tracking-widest rounded-xl shadow-md transition-colors cursor-pointer"
+              >
+                Import Trip
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

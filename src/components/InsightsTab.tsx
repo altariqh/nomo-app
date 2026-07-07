@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, RefreshCw, Star, AlertCircle, Compass, Heart, X, MapPin, Plus, Trash2, RotateCcw, Check, Navigation, ChevronLeft, ChevronRight, ZoomIn } from 'lucide-react';
 import { Trip, CommunityReview, ItineraryItem } from '../types';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
@@ -28,7 +28,7 @@ interface ScoutCard {
 }
 
 interface InsightsTabProps {
-  activeTrip: Trip;
+  activeTrip?: Trip;
   onUpdateTrip: (trip: Trip) => void;
   communityReviews: CommunityReview[];
   onNavigateToTab: (tab: 'journal' | 'ledger' | 'insights' | 'profile') => void;
@@ -166,6 +166,169 @@ export default function InsightsTab({
   communityReviews,
   onNavigateToTab,
 }: InsightsTabProps) {
+  // Local state for city exploration when there is no active trip or when they want to explore another city
+  const [currentCity, setCurrentCity] = useState<string>(() => {
+    return activeTrip?.destination || '';
+  });
+
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      triggerToast('Geolocation is not supported by your browser');
+      return;
+    }
+    
+    setSearchLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10`;
+        
+        fetch(url)
+          .then((res) => res.json())
+          .then((data) => {
+            const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county || 'Current Location';
+            setCurrentCity(city);
+            setCurrentCoords({ lat: latitude, lon: longitude });
+            setSelectedCategory(null);
+            setScoutCards([]);
+            triggerToast(`📍 Location found: ${city}`);
+          })
+          .catch((err) => {
+             console.error(err);
+             triggerToast('Failed to get location name');
+          })
+          .finally(() => {
+             setSearchLoading(false);
+          });
+      },
+      (error) => {
+        console.error(error);
+        triggerToast('Failed to access location');
+        setSearchLoading(false);
+      }
+    );
+  };
+
+  useEffect(() => {
+    if (!currentCity && !activeTrip) {
+      handleUseCurrentLocation();
+    }
+  }, []);
+
+  const [currentCoords, setCurrentCoords] = useState<{ lat?: number; lon?: number }>(() => {
+    return {
+      lat: activeTrip?.latitude || undefined,
+      lon: activeTrip?.longitude || undefined,
+    };
+  });
+
+  const [localBookmarks, setLocalBookmarks] = useState<ItineraryItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('nomo_local_bookmarks');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('nomo_local_bookmarks', JSON.stringify(localBookmarks));
+  }, [localBookmarks]);
+
+  // Synchronize currentCity and coords with activeTrip if it changes
+  useEffect(() => {
+    if (activeTrip?.destination) {
+      setCurrentCity(activeTrip.destination);
+      setCurrentCoords({
+        lat: activeTrip.latitude,
+        lon: activeTrip.longitude,
+      });
+    }
+  }, [activeTrip?.destination, activeTrip?.latitude, activeTrip?.longitude]);
+
+
+
+  // OSM Autocomplete states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [predictions, setPredictions] = useState<Array<{ id: string; title: string; description: string; lat?: number; lon?: number }>>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Auto-close prediction dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchDropdownRef.current && !searchDropdownRef.current.contains(event.target as Node)) {
+        setSearchFocused(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Fetch OpenStreetMap Nominatim city predictions
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) {
+      setPredictions([]);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(() => {
+      setSearchLoading(true);
+      const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(searchQuery)}&limit=5`);
+
+      fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error('HTTP error');
+          return res.json();
+        })
+        .then((data) => {
+          if (Array.isArray(data)) {
+            const parsed = data.map((item: any, index: number) => {
+              const parts = item.display_name.split(',');
+              const title = parts[0]?.trim() || 'Unknown Place';
+              const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
+              return {
+                id: `scout-search-${item.place_id || 'osm'}-${index}`,
+                title: title,
+                description: description || 'Scenic location',
+                lat: item.lat ? parseFloat(item.lat) : undefined,
+                lon: item.lon ? parseFloat(item.lon) : undefined
+              };
+            });
+            setPredictions(parsed);
+          } else {
+            setPredictions([]);
+          }
+        })
+        .catch((err) => {
+          console.error('[Scout City Search]', err);
+        })
+        .finally(() => {
+          setSearchLoading(false);
+        });
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
+
+  const handleSelectCity = (place: { title: string; description: string; lat?: number; lon?: number }) => {
+    setCurrentCity(place.title);
+    setCurrentCoords({ lat: place.lat, lon: place.lon });
+    setSearchQuery('');
+    setPredictions([]);
+    setSearchFocused(false);
+    
+    // Clear existing scout deck so they can choose a vibe for the new city
+    setSelectedCategory(null);
+    setScoutCards([]);
+    
+    triggerToast(`📍 Switched scout focus to ${place.title}!`);
+  };
+
+  const currency = activeTrip?.currency || 'USD';
+  const savedSpots = activeTrip?.savedSpots || localBookmarks;
+
   // AI Scout States
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [scoutCards, setScoutCards] = useState<ScoutCard[]>([]);
@@ -199,10 +362,10 @@ export default function InsightsTab({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          destination: activeTrip.destination,
+          destination: currentCity,
           category: categoryKey,
-          lat: activeTrip.latitude,
-          lon: activeTrip.longitude,
+          lat: currentCoords?.lat,
+          lon: currentCoords?.lon,
         }),
       });
 
@@ -233,6 +396,10 @@ export default function InsightsTab({
 
   // Saved Actions: Add directly to Trip Itinerary
   const handleAddToItinerary = (card: ScoutCard) => {
+    if (!activeTrip) {
+      triggerToast('✈️ Pin a voyage first to build routes & itinerary!');
+      return;
+    }
     const newItem: ItineraryItem = {
       id: `itinerary-${Date.now()}`,
       title: card.name,
@@ -271,11 +438,15 @@ export default function InsightsTab({
       lon: card.lon,
     };
 
-    const updatedSaved = [...(activeTrip.savedSpots || []), newItem];
-    onUpdateTrip({
-      ...activeTrip,
-      savedSpots: updatedSaved,
-    });
+    if (activeTrip) {
+      const updatedSaved = [...(activeTrip.savedSpots || []), newItem];
+      onUpdateTrip({
+        ...activeTrip,
+        savedSpots: updatedSaved,
+      });
+    } else {
+      setLocalBookmarks((prev) => [...prev, newItem]);
+    }
 
     triggerToast(`📌 Bookmarked "${card.name}" to Saved Places!`);
     setShowActionOverlay(null);
@@ -284,6 +455,10 @@ export default function InsightsTab({
 
   // Transfer from Saved Library to Active Route
   const handleMigrateSavedToRoute = (item: ItineraryItem) => {
+    if (!activeTrip) {
+      triggerToast('✈️ Pin a voyage first to build routes & itinerary!');
+      return;
+    }
     const freshItineraryItem: ItineraryItem = {
       ...item,
       id: `itinerary-converted-${Date.now()}`,
@@ -304,11 +479,15 @@ export default function InsightsTab({
 
   // Delete from Saved Library
   const handleDeleteSavedSpot = (itemId: string) => {
-    const updatedSaved = (activeTrip.savedSpots || []).filter((s) => s.id !== itemId);
-    onUpdateTrip({
-      ...activeTrip,
-      savedSpots: updatedSaved,
-    });
+    if (activeTrip) {
+      const updatedSaved = (activeTrip.savedSpots || []).filter((s) => s.id !== itemId);
+      onUpdateTrip({
+        ...activeTrip,
+        savedSpots: updatedSaved,
+      });
+    } else {
+      setLocalBookmarks((prev) => prev.filter((s) => s.id !== itemId));
+    }
     triggerToast('🗑️ Bookmark removed.');
   };
 
@@ -319,25 +498,100 @@ export default function InsightsTab({
     <div className="space-y-4 p-4 pb-24 overflow-y-auto h-full select-none relative">
       
       {/* 1. TOP COMMUNITY META TRACKS */}
-      <div className="bg-[#5A5A40] p-3.5 rounded-2xl text-white shadow-sm text-left relative overflow-hidden flex items-center justify-between gap-3">
-        <div className="space-y-1 max-w-[85%]">
-          <div className="flex items-center gap-2">
-            <span className="text-[8px] font-mono uppercase tracking-widest font-extrabold bg-white/15 px-1.5 py-0.5 rounded border border-white/10 text-amber-200">
-              Nomo Scout
-            </span>
-            <span className="text-[8px] font-mono uppercase font-bold text-white/70">
-              Within 20 km
-            </span>
+      <div className="bg-[#5A5A40] p-4 rounded-3xl text-white shadow-md text-left relative flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-1 max-w-[85%]">
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] font-mono uppercase tracking-widest font-extrabold bg-white/15 px-1.5 py-0.5 rounded border border-white/10 text-amber-200">
+                Nomo Scout
+              </span>
+              <span className="text-[8px] font-mono uppercase font-bold text-white/70">
+                Within 20 km
+              </span>
+            </div>
+            <h3 className="font-serif italic text-sm text-[#FAF8F5] font-extrabold leading-tight">
+              {currentCity ? `Curated Local Discoveries in ${currentCity}` : 'Where to?'}
+            </h3>
+            <p className="text-[10px] text-white/85 leading-relaxed font-sans">
+              {currentCity ? 'Swipe to match local recommendations and explore curated coffee houses, viewpoints, and neighborhood joints.' : 'Search for a city below to unlock curated local recommendations.'}
+            </p>
           </div>
-          <h3 className="font-serif italic text-sm text-[#FAF8F5] font-extrabold leading-tight">
-            Curated Local Discoveries in {activeTrip.destination}
-          </h3>
-          <p className="text-[10px] text-white/85 leading-relaxed font-sans">
-            Swipe to match local recommendations and explore curated coffee houses, viewpoints, and neighborhood joints.
-          </p>
+          <div className="shrink-0 bg-white/10 p-2 rounded-xl border border-white/10">
+            <Compass className="w-5 h-5 text-amber-200" />
+          </div>
         </div>
-        <div className="shrink-0 bg-white/10 p-2 rounded-xl border border-white/10">
-          <Compass className="w-5 h-5 text-amber-200" />
+
+        {/* ELEGANT SEARCH SELECTOR */}
+        <div className="relative" ref={searchDropdownRef}>
+          <div className="flex items-center gap-2 bg-white/10 rounded-2xl p-2 px-3 border border-white/15 hover:bg-white/15 focus-within:bg-white focus-within:text-stone-800 focus-within:border-white transition-all text-white">
+            <MapPin className="w-4 h-4 shrink-0 opacity-80" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setSearchFocused(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && searchQuery.trim()) {
+                  setCurrentCity(searchQuery.trim());
+                  setCurrentCoords({ lat: undefined, lon: undefined }); // Reset coords on manual enter
+                  setSelectedCategory(null);
+                  setScoutCards([]);
+                  setSearchQuery('');
+                  setSearchFocused(false);
+                  setPredictions([]);
+                }
+              }}
+              onFocus={() => setSearchFocused(true)}
+              placeholder="Search other cities to scout..."
+              className="bg-transparent text-xs w-full focus:outline-hidden placeholder-white/60 focus:placeholder-stone-400 outline-hidden font-sans font-medium"
+            />
+            {searchQuery ? (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setPredictions([]);
+                }}
+                className="p-1 hover:bg-white/10 focus-within:hover:bg-stone-100 rounded-lg text-current cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                onClick={handleUseCurrentLocation}
+                className="p-1 hover:bg-white/10 focus-within:hover:bg-stone-100 rounded-lg text-current cursor-pointer"
+                title="Use Current Location"
+              >
+                <Navigation className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* PREDICTIONS DROPDOWN */}
+          {searchFocused && (predictions.length > 0 || searchLoading) && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-stone-200/80 rounded-2xl shadow-xl overflow-hidden z-40 max-h-48 overflow-y-auto">
+              {searchLoading && (
+                <div className="flex items-center justify-center p-4 text-xs text-stone-400 font-mono">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                  <span>Searching locations...</span>
+                </div>
+              )}
+              {!searchLoading && predictions.map((pred) => (
+                <button
+                  key={pred.id}
+                  onClick={() => handleSelectCity(pred)}
+                  className="w-full text-left p-2.5 px-3.5 hover:bg-stone-50 border-b border-stone-100 last:border-0 flex items-start gap-2.5 transition-colors cursor-pointer"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-[#5A5A40] mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="text-xs font-sans font-bold text-stone-800 block truncate">{pred.title}</span>
+                    <span className="text-[9.5px] font-mono text-[#8C857E] block truncate">{pred.description}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -378,8 +632,8 @@ export default function InsightsTab({
               {INTERESTS.map((interest) => (
                 <button
                   key={interest.id}
-                  onClick={() => handleFetchScoutCards(interest.id)}
-                  className="p-4 bg-[#FAF8F5]/80 hover:bg-[#5A5A40]/5 border border-stone-200/50 hover:border-[#5A5A40]/30 rounded-2xl transition-all cursor-pointer text-left hover:scale-[1.01] flex items-start gap-3"
+                  onClick={() => currentCity ? handleFetchScoutCards(interest.id) : triggerToast('Please search and select a city first!')}
+                  className={`p-4 bg-[#FAF8F5]/80 border border-stone-200/50 rounded-2xl transition-all text-left flex items-start gap-3 ${currentCity ? 'hover:bg-[#5A5A40]/5 hover:border-[#5A5A40]/30 cursor-pointer hover:scale-[1.01]' : 'opacity-60 grayscale-[0.3] cursor-not-allowed'}`}
                 >
                   <span className="text-2xl mt-0.5" role="img" aria-label={interest.label}>
                     {interest.emoji}
@@ -451,7 +705,7 @@ export default function InsightsTab({
                   <SwipableCard
                     key={activeCard.id}
                     card={activeCard}
-                    currency={activeTrip.currency}
+                    currency={currency}
                     onLike={handleLike}
                     onNope={handleNope}
                     onSelectDetail={setSelectedDetailCard}
@@ -474,7 +728,7 @@ export default function InsightsTab({
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleFetchScoutCards(selectedCategory || '')}
+                      onClick={() => currentCity ? handleFetchScoutCards(selectedCategory || '') : triggerToast('Please search and select a city first!')}
                       className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl text-[9px] font-mono tracking-wider font-extrabold uppercase transition-colors cursor-pointer"
                     >
                       🔄 Rescout Vibe
@@ -598,7 +852,7 @@ export default function InsightsTab({
                       📍 {selectedDetailCard.distance} km away from you
                     </span>
                     <p className="text-[9.5px] text-[#8C857E] leading-normal font-sans">
-                      Located within safe boundaries in {activeTrip.destination}.
+                      Located within safe boundaries in {currentCity}.
                     </p>
                   </div>
                   <button
@@ -606,7 +860,7 @@ export default function InsightsTab({
                     onClick={() => {
                       const dest = selectedDetailCard.lat && selectedDetailCard.lon 
                         ? `${selectedDetailCard.lat},${selectedDetailCard.lon}` 
-                        : `${selectedDetailCard.name}, ${activeTrip.destination}`;
+                        : `${selectedDetailCard.name}, ${currentCity}`;
                       const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
                       window.open(url, '_blank');
                     }}
@@ -786,11 +1040,11 @@ export default function InsightsTab({
             <h4 className="font-serif italic text-sm font-bold text-[#3C3836]">Saved Places Log</h4>
           </div>
           <span className="font-mono text-[9px] text-[#A8A29E] bg-white px-2 py-0.5 rounded border border-[#F1EFE9]">
-            {(activeTrip.savedSpots || []).length} Bookmarks
+            {savedSpots.length} Bookmarks
           </span>
         </div>
 
-        {(activeTrip.savedSpots || []).length === 0 ? (
+        {savedSpots.length === 0 ? (
           <div className="text-center py-6 space-y-1 text-stone-400">
             <BookmarkPlaceholder />
             <h5 className="text-[10px] font-mono uppercase font-black text-[#A8A29E]">No Saved Places Bookmarked Yet</h5>
@@ -800,7 +1054,7 @@ export default function InsightsTab({
           </div>
         ) : (
           <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
-            {(activeTrip.savedSpots || []).map((spot) => (
+            {savedSpots.map((spot) => (
               <div
                 key={spot.id}
                 className="bg-white p-3 rounded-2xl border border-stone-200/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs shadow-3xs"
@@ -818,7 +1072,7 @@ export default function InsightsTab({
                     </span>
                     {spot.estimatedCost !== undefined && (
                       <span className="text-[7.5px] font-mono text-[#8C857E] leading-none uppercase font-bold ml-1">
-                        Est: {spot.estimatedCost} {activeTrip.currency}
+                        Est: {spot.estimatedCost} {currency}
                       </span>
                     )}
                   </div>
@@ -832,7 +1086,7 @@ export default function InsightsTab({
                     onClick={() => {
                       const dest = spot.lat && spot.lon 
                         ? `${spot.lat},${spot.lon}` 
-                        : `${spot.title}, ${activeTrip.destination}`;
+                        : `${spot.title}, ${currentCity}`;
                       const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
                       window.open(url, '_blank');
                     }}

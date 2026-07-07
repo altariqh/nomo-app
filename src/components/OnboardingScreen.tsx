@@ -24,7 +24,7 @@ export default function OnboardingScreen({
   const [step, setStep] = useState(1);
 
   const handleNext = () => {
-    if (step < 3) {
+    if (step < 2) {
       setStep(step + 1);
     } else {
       onOnboardingComplete();
@@ -48,7 +48,7 @@ export default function OnboardingScreen({
             <span className="text-[9px] font-mono bg-[#E7E5E4] px-1.5 py-0.5 rounded text-[#5A5A40] uppercase font-bold">itinerary planner</span>
           </div>
           <div className="flex gap-1">
-            {[1, 2, 3].map((s) => (
+            {[1, 2].map((s) => (
               <div 
                 key={s} 
                 className={`h-1.5 rounded-full transition-all duration-300 ${
@@ -127,40 +127,6 @@ export default function OnboardingScreen({
             </div>
           )}
 
-          {step === 3 && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="inline-flex p-3 rounded-full bg-[#EAE0D8] text-[#5A5A40] mb-1">
-                <Sparkles className="w-6 h-6 stroke-[1.8]" />
-              </div>
-              <h2 className="text-2xl md:text-3xl font-serif italic text-[#3C3836] leading-tight">
-                Powerful Group Utilities & AI Recap
-              </h2>
-              <p className="text-xs text-[#8C857E] leading-relaxed">
-                Connect and coordinate. Divide expenses across your travel circle and look up automated, beautiful itineraries with a single click.
-              </p>
-
-              <div className="space-y-2.5 pt-1">
-                <div className="flex items-start gap-2 text-xs">
-                  <div className="mt-0.5"><CheckCircle2 className="w-4 h-4 text-[#5A5A40] shrink-0" /></div>
-                  <div>
-                    <span className="font-bold text-[#3C3836]">Settlements & Ledger:</span> Let friends join travel logs. Nomo automatically computes who paid what and displays net-debt clearances.
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 text-xs">
-                  <div className="mt-0.5"><CheckCircle2 className="w-4 h-4 text-[#5A5A40] shrink-0" /></div>
-                  <div>
-                    <span className="font-bold text-[#3C3836]">Personal Review Feed:</span> View your entire database of written tourist reviews, categorized cleanly in your profile directory.
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 text-xs">
-                  <div className="mt-0.5"><CheckCircle2 className="w-4 h-4 text-[#5A5A40] shrink-0" /></div>
-                  <div>
-                    <span className="font-bold text-[#3C3836]">Review Recap Generator:</span> Let AI craft narrative summaries of all your review metrics to help you remember the highlights.
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* BOTTOM NAV BAR */}
@@ -178,7 +144,7 @@ export default function OnboardingScreen({
             onClick={handleNext}
             className="flex items-center gap-1.5 px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest bg-[#5A5A40] text-white hover:bg-[#4a4a34] active:scale-95 transition-all shadow-md cursor-pointer"
           >
-            <span>{step === 3 ? "Let's Begin" : 'Continue'}</span>
+            <span>{step === 2 ? "Let's Begin" : 'Continue'}</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>

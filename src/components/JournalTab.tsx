@@ -64,8 +64,12 @@ export default function JournalTab({
   // Parse completed days list with detailed statistics from all trips
   const allCompletedDays = allTrips.flatMap((trip) => {
     const datesList = getDatesInRange(trip.startDate, trip.endDate);
-    return datesList.map((dateStr, idx) => {
-      const dayItems = (trip.itinerary || []).filter(item => item.visitDate === dateStr);
+    const actualDates = datesList.length > 0 ? datesList : [trip.startDate || 'Day 1'];
+    return actualDates.map((dateStr, idx) => {
+      const dayItems = (trip.itinerary || []).filter(item => {
+        if (idx === 0 && !item.visitDate) return true;
+        return item.visitDate === dateStr;
+      });
       const dayTotalSpent = dayItems
         .filter(item => item.visited)
         .reduce((sum, item) => sum + (item.estimatedCost || 0), 0);

@@ -56,6 +56,17 @@ function formatTime12h(timeStr?: string): string {
   return timeStr;
 }
 
+function formatAmountWithCommas(val: string | number): string {
+  if (val === undefined || val === null) return '';
+  let str = val.toString().replace(/[^0-9.]/g, '');
+  const parts = str.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (parts.length > 2) {
+    return parts[0] + '.' + parts.slice(1).join('');
+  }
+  return parts.join('.');
+}
+
 // Get date strings list between startDate and endDate
 function getDatesInRange(startDateStr: string, endDateStr: string): string[] {
   if (!startDateStr || !endDateStr) return [];
@@ -458,7 +469,7 @@ export default function LedgerTab({
     const times = ['09:30 AM', '01:00 PM', '04:30 PM', '08:00 PM', '10:00 PM'];
     const autoTime = times[Math.min((activeTrip.itinerary || []).length, times.length - 1)];
 
-    const cost = parseFloat(newSpotForm.estimatedCost) || 0;
+    const cost = parseFloat(String(newSpotForm.estimatedCost).replace(/,/g, '')) || 0;
     const duration = parseInt(newSpotForm.estimatedTimeSpent, 10) || 60;
     const item: ItineraryItem = {
       id: `itin-${Date.now()}`,
@@ -506,8 +517,10 @@ export default function LedgerTab({
   const submitCheckInReview = () => {
     if (!activeCheckInSpot) return;
 
-    const amt = parseFloat(checkInForm.spentAmount) || 0;
-    const visitDate = new Date().toISOString().split('T')[0];
+    const amt = parseFloat(String(checkInForm.spentAmount).replace(/,/g, '')) || 0;
+    const dates = getDatesInRange(activeTrip.startDate, activeTrip.endDate);
+    const dateStr = dates[selectedDayIdx] || activeTrip.startDate || '';
+    const visitDate = activeCheckInSpot.visitDate || dateStr;
 
     // Find the primary selected card
     const selectedCard = registeredCards.find(rc => rc.id === checkInForm.paymentMethodId) ||
@@ -860,7 +873,7 @@ export default function LedgerTab({
           }));
         }
 
-        const visitDate = new Date().toISOString().split('T')[0];
+        const visitDate = spot.visitDate || new Date().toISOString().split('T')[0];
         const updatedItinerary = activeTrip.itinerary.map(item => {
           if (item.id === spot.id) {
             return {
@@ -1034,20 +1047,26 @@ export default function LedgerTab({
             <div className="space-y-3.5">
               {/* 1. Next Destination Slim Inline Bar */}
               {nextSpotObj && (
-                <div className="px-3 py-1.5 bg-[#5A5A40]/5 border border-[#5A5A40]/15 rounded-xl flex items-center justify-between gap-2.5 text-left animate-fade-in text-[10px] shadow-3xs">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="text-[8px] font-mono uppercase bg-[#5A5A40] text-white px-1.5 py-0.5 rounded leading-none shrink-0 font-black">
-                      🎯 Next Destination
-                    </span>
-                    <span className="font-bold text-stone-800 truncate" title={nextSpotObj.title}>
-                      {nextSpotObj.title}
-                    </span>
-                    {nextSpotObj.arrivalTime && (
-                      <span className="text-[8.5px] text-[#8C857E] font-mono shrink-0">
-                        ({formatTime12h(nextSpotObj.arrivalTime)})
+                <div className="p-3 bg-gradient-to-r from-[#5A5A40]/8 to-[#5A5A40]/3 border border-[#5A5A40]/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left animate-fade-in text-[10.5px] shadow-xs">
+                  <div className="min-w-0 space-y-1.5 flex-1">
+                    {/* Badge and Time Row */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[8px] font-mono uppercase bg-[#5A5A40] text-white px-2 py-0.5 rounded-md leading-none shrink-0 font-black tracking-wider">
+                        🎯 Next Destination
                       </span>
-                    )}
+                      {nextSpotObj.arrivalTime && (
+                        <span className="text-[8.5px] text-[#8C857E] font-mono font-bold bg-[#FAF8F5] border border-stone-200/60 px-1.5 py-0.5 rounded-md shrink-0">
+                          ⏱️ {formatTime12h(nextSpotObj.arrivalTime)}
+                        </span>
+                      )}
+                    </div>
+                    {/* Destination Title - Fully readable and beautifully responsive! */}
+                    <p className="font-sans font-black text-stone-900 text-[11px] sm:text-[12px] leading-snug break-words">
+                      {nextSpotObj.title}
+                    </p>
                   </div>
+                  
+                  {/* Action button - easy to tap touch target on mobile, beautifully styled */}
                   <button
                     type="button"
                     onClick={() => {
@@ -1055,9 +1074,9 @@ export default function LedgerTab({
                       const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
                       window.open(url, '_blank');
                     }}
-                    className="py-1 px-2.5 bg-[#5A5A40] hover:bg-[#4a4a34] text-white text-[8px] font-mono uppercase font-black rounded-lg transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                    className="w-full sm:w-auto py-2 px-3.5 bg-[#5A5A40] hover:bg-[#4a4a34] text-white text-[9px] font-mono uppercase font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-98 shrink-0"
                   >
-                    <Navigation className="w-2 h-2 fill-white text-white" />
+                    <Navigation className="w-3 h-3 fill-white text-white" />
                     <span>Navigate</span>
                   </button>
                 </div>
@@ -1169,9 +1188,10 @@ export default function LedgerTab({
                                 <div>
                                   <label className="text-[8.5px] font-mono uppercase text-[#8C857E] block font-bold">Edit Cost</label>
                                   <input
-                                    type="number"
-                                    value={editingSpotForm.estimatedCost}
-                                    onChange={(e) => setEditingSpotForm(p => ({ ...p, estimatedCost: e.target.value }))}
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={formatAmountWithCommas(editingSpotForm.estimatedCost)}
+                                    onChange={(e) => setEditingSpotForm(p => ({ ...p, estimatedCost: formatAmountWithCommas(e.target.value) }))}
                                     className="w-full bg-[#FAF8F5] border border-stone-200 rounded px-2 py-1 focus:outline-none text-[11px]"
                                   />
                                 </div>
@@ -1217,7 +1237,7 @@ export default function LedgerTab({
                                       ...i,
                                       title: editingSpotForm.title,
                                       description: editingSpotForm.description,
-                                      estimatedCost: Number(editingSpotForm.estimatedCost) || 0,
+                                      estimatedCost: Number(String(editingSpotForm.estimatedCost).replace(/,/g, '')) || 0,
                                       arrivalTime: editingSpotForm.arrivalTime,
                                       visitDate: editingSpotForm.visitDate,
                                       estimatedTimeSpent: Number(editingSpotForm.estimatedTimeSpent) || 60
@@ -1450,10 +1470,11 @@ export default function LedgerTab({
                               <div>
                                 <label className="text-[8px] font-mono uppercase text-[#8C857E] block font-bold">Est. Cost ({activeTrip.currency})</label>
                                 <input
-                                  type="number"
-                                  placeholder="e.g. 2500"
-                                  value={newSpotForm.estimatedCost}
-                                  onChange={(e) => setNewSpotForm({ ...newSpotForm, estimatedCost: e.target.value })}
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="e.g. 2,500"
+                                  value={formatAmountWithCommas(newSpotForm.estimatedCost)}
+                                  onChange={(e) => setNewSpotForm({ ...newSpotForm, estimatedCost: formatAmountWithCommas(e.target.value) })}
                                   className="w-full bg-white border border-stone-200 px-2 py-1 rounded text-xs focus:ring-1 focus:ring-[#5A5A40] focus:outline-none"
                                 />
                               </div>
@@ -1880,10 +1901,11 @@ export default function LedgerTab({
               <div>
                 <label className="text-[9px] font-mono uppercase tracking-wider text-stone-500 block">Amount Spent</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   required
-                  value={checkInForm.spentAmount}
-                  onChange={(e) => setCheckInForm({ ...checkInForm, spentAmount: e.target.value })}
+                  value={formatAmountWithCommas(checkInForm.spentAmount)}
+                  onChange={(e) => setCheckInForm({ ...checkInForm, spentAmount: formatAmountWithCommas(e.target.value) })}
                   className="w-full bg-stone-50 border border-stone-200 rounded px-2.5 py-1.5 text-xs text-[#3C3836] focus:outline-none focus:ring-1 focus:ring-[#5A5A40] mt-1"
                 />
               </div>

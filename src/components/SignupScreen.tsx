@@ -12,6 +12,8 @@ interface SignupScreenProps {
     profilePicture?: string;
   }, isNewUser: boolean) => void;
   onSkipToDemo: () => void;
+  initialIsSignIn?: boolean;
+  onBackToLanding?: () => void;
 }
 
 interface StoredUser {
@@ -23,8 +25,8 @@ interface StoredUser {
   profilePicture?: string;
 }
 
-export default function SignupScreen({ onSignupComplete, onSkipToDemo }: SignupScreenProps) {
-  const [isSignIn, setIsSignIn] = useState(false);
+export default function SignupScreen({ onSignupComplete, onSkipToDemo, initialIsSignIn, onBackToLanding }: SignupScreenProps) {
+  const [isSignIn, setIsSignIn] = useState(initialIsSignIn ?? false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,6 +35,13 @@ export default function SignupScreen({ onSignupComplete, onSkipToDemo }: SignupS
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
+
+  // Handle updates to initialIsSignIn dynamically
+  useEffect(() => {
+    if (initialIsSignIn !== undefined) {
+      setIsSignIn(initialIsSignIn);
+    }
+  }, [initialIsSignIn]);
 
   // Local Database of users initialized with Sophie
   useEffect(() => {
@@ -45,7 +54,7 @@ export default function SignupScreen({ onSignupComplete, onSkipToDemo }: SignupS
           specialty: 'Remote Creative',
           seedingMood: 'Joyful',
           password: 'coffee2026',
-          profilePicture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80'
+          profilePicture: ''
         }
       ];
       localStorage.setItem('nomo_users_db_v3', JSON.stringify(defaultUsers));
@@ -55,9 +64,12 @@ export default function SignupScreen({ onSignupComplete, onSkipToDemo }: SignupS
     const remembered = localStorage.getItem('nomo_remembered_email');
     if (remembered) {
       setEmail(remembered);
-      setIsSignIn(true); // Switch to sign in if we remembered someone
+      // Only force sign-in mode if we don't have an explicit override from the landing page
+      if (initialIsSignIn === undefined) {
+        setIsSignIn(true);
+      }
     }
-  }, []);
+  }, [initialIsSignIn]);
 
   const specialties = [
     'Remote Creative',
@@ -127,7 +139,7 @@ export default function SignupScreen({ onSignupComplete, onSkipToDemo }: SignupS
         specialty,
         seedingMood,
         password: password,
-        profilePicture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80'
+        profilePicture: ''
       };
 
       // Push to local db list
@@ -152,6 +164,17 @@ export default function SignupScreen({ onSignupComplete, onSkipToDemo }: SignupS
   return (
     <div className="min-h-screen bg-[#FBF9F7] text-[#3C3836] p-4 md:p-8 flex flex-col justify-center items-center">
       <div className="w-full max-w-lg bg-white rounded-[32px] p-6 md:p-10 shadow-xl border border-[#F1EFE9] relative overflow-hidden transition-all duration-300">
+        {onBackToLanding && (
+          <button
+            type="button"
+            onClick={onBackToLanding}
+            className="absolute top-5 left-5 text-[#8C857E] hover:text-[#5A5A40] transition-colors cursor-pointer p-1.5 rounded-full hover:bg-stone-100 flex items-center justify-center gap-1 border border-stone-200/40 bg-white shadow-3xs z-10"
+            title="Back to Features Overview"
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span className="text-[9px] font-mono uppercase font-black tracking-wider pr-1">Features</span>
+          </button>
+        )}
         <div className="text-center mt-2 mb-6">
           <div className="inline-flex items-center gap-2 justify-center mb-1">
             <h1 className="text-4xl font-serif italic text-[#5A5A40] tracking-tight font-bold">nomo.</h1>

@@ -139,11 +139,14 @@ export default function ProfileTab({
   const [password, setPassword] = useState(user.password || 'coffee2026');
   const [specialty] = useState(user.specialty);
   const [seedingMood] = useState(user.seedingMood);
-  const [profilePicture, setProfilePicture] = useState(user.profilePicture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80');
+  const [profilePicture, setProfilePicture] = useState(user.profilePicture || '');
   
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // Controls if editing profile subpage is active
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
   
   // Controls if email, password, and profile photo editors are expanded
   const [isEditingCredentials, setIsEditingCredentials] = useState(false);
@@ -260,6 +263,7 @@ export default function ProfileTab({
     setTimeout(() => {
       setSuccess('');
       setIsEditingCredentials(false);
+      setIsEditingProfile(false);
     }, 1500);
   };
 
@@ -365,6 +369,213 @@ export default function ProfileTab({
     setIsCapturing(false);
   };
 
+  if (isEditingProfile) {
+    return (
+      <div className="space-y-5 p-4 pb-20 overflow-y-auto h-full select-none bg-[#FAF9F7] text-left">
+        {/* Back header */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setError('');
+              setSuccess('');
+              setIsEditingProfile(false);
+            }}
+            className="p-1.5 rounded-full hover:bg-stone-200 transition-all text-stone-600 bg-stone-100 cursor-pointer"
+          >
+            <ChevronDown className="w-4 h-4 rotate-90" />
+          </button>
+          <span className="text-[10px] font-mono uppercase bg-[#5A5A40]/15 text-[#5A5A40] px-2 py-0.5 rounded font-black tracking-widest">
+            📂 traveler profile
+          </span>
+        </div>
+
+        <div className="bg-white rounded-3xl p-5 border border-[#F1EFE9] shadow-xs space-y-4">
+          <div className="space-y-1">
+            <h2 className="font-serif italic text-lg font-black text-[#3C3836]">
+              Edit Traveler Passport
+            </h2>
+            <p className="text-[8px] font-mono text-[#8C857E] uppercase leading-none mt-0.5">
+              Update your security credentials and profile identity
+            </p>
+          </div>
+
+          {error && (
+            <div className="p-2.5 bg-red-50 text-red-600 text-xs rounded-xl flex items-center gap-2 border border-red-100">
+              <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
+              <span className="font-semibold text-[10px]">{error}</span>
+            </div>
+          )}
+
+          {success && (
+            <div className="p-2.5 bg-green-50 text-green-700 text-xs rounded-xl flex items-center gap-2 border border-green-100">
+              <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
+              <span className="font-semibold text-[10px]">{success}</span>
+            </div>
+          )}
+
+          {/* Hidden inputs */}
+          <input 
+            type="file"
+            ref={fileInputRef}
+            id="profile-upload-file-input"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Profile image uploading/snapshotting */}
+            <div className="space-y-1.5 text-left">
+              <label className="text-[8px] font-mono uppercase tracking-wider text-[#8C857E] font-black block">
+                Update Avatar Identity
+              </label>
+              
+              <div className="flex flex-col gap-2.5 bg-stone-50 p-3 rounded-2xl border border-[#F1EFE9]">
+                <div className="flex items-center gap-4">
+                  <div className="relative shrink-0 w-16 h-16 rounded-full border-2 border-white shadow-xs overflow-hidden bg-[#EAE0D8] flex items-center justify-center text-[#5A5A40]">
+                    {profilePicture ? (
+                      <img 
+                        src={profilePicture} 
+                        alt="Avatar preview" 
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <User className="w-8 h-8 stroke-[1.5]" />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5 flex-1">
+                    <button
+                      type="button"
+                      onClick={handlePhotoUploadClick}
+                      className="w-full py-1.5 bg-white hover:bg-stone-100 border border-stone-200 rounded-lg text-[#3C3836] text-[8px] font-mono uppercase font-black flex items-center justify-center gap-1 transition-all cursor-pointer"
+                    >
+                      <Upload className="w-3 h-3 text-stone-500" />
+                      <span>Upload Library Photo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCameraCaptureClick}
+                      className="w-full py-1.5 bg-white hover:bg-stone-100 border border-stone-200 rounded-lg text-[#3C3836] text-[8px] font-mono uppercase font-black flex items-center justify-center gap-1 transition-all cursor-pointer"
+                    >
+                      <Camera className="w-3 h-3 text-stone-500" />
+                      <span>Take snapshot</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Camera stage */}
+                {isCapturing && (
+                  <div className="text-center p-2 bg-stone-900 rounded-xl overflow-hidden relative border border-stone-800 flex flex-col items-center">
+                    <div className="absolute top-1.5 left-2 rounded bg-red-600 px-1.5 py-0.5 text-[6px] font-mono font-bold text-white uppercase tracking-wider animate-pulse flex items-center gap-0.5">
+                      <span className="w-1 h-1 rounded-full bg-white animate-ping" />
+                      <span>Live Lens</span>
+                    </div>
+                    <video 
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-40 h-40 rounded-lg object-cover bg-stone-950 border border-stone-800"
+                    />
+                    <div className="flex gap-1 mt-2">
+                      <button
+                        type="button"
+                        onClick={handleCaptureSnapshot}
+                        className="px-2 py-1 bg-white text-stone-900 hover:bg-stone-100 text-[8px] uppercase font-mono font-bold rounded flex items-center gap-1"
+                      >
+                        <Camera className="w-3 h-3 text-stone-900" />
+                        <span>Snap</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={stopCamera}
+                        className="px-2 py-1 bg-red-600 text-white hover:bg-red-700 text-[8px] uppercase font-mono font-bold rounded"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Name Field */}
+            <div className="space-y-1 text-left">
+              <label className="text-[8px] font-mono uppercase tracking-wider text-[#8C857E] font-black block">
+                Traveler Name
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Enter traveler name"
+                  className="w-full p-2.5 text-xs rounded-xl bg-stone-50 border border-stone-200 focus:outline-none focus:ring-1 focus:ring-[#5A5A40] text-[#3C3836] font-sans font-bold"
+                />
+                <User className="absolute right-3 top-3 w-3.5 h-3.5 text-stone-400" />
+              </div>
+            </div>
+
+            {/* Email Field */}
+            <div className="space-y-1 text-left">
+              <label className="text-[8px] font-mono uppercase tracking-wider text-[#8C857E] font-black block">
+                Email Address
+              </label>
+              <div className="relative">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="nomad@wanderer.com"
+                  className="w-full p-2.5 text-xs rounded-xl bg-stone-50 border border-stone-200 focus:outline-none focus:ring-1 focus:ring-[#5A5A40] text-[#3C3836] font-sans font-bold"
+                />
+                <Mail className="absolute right-3 top-3 w-3.5 h-3.5 text-stone-400" />
+              </div>
+            </div>
+
+            {/* Password Field */}
+            <div className="space-y-1 text-left">
+              <label className="text-[8px] font-mono uppercase tracking-wider text-[#8C857E] font-black block">
+                Secure Password
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full p-2.5 text-xs rounded-xl bg-stone-50 border border-stone-200 focus:outline-none focus:ring-1 focus:ring-[#5A5A40] text-[#3C3836] font-mono font-bold"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3 text-stone-400 hover:text-stone-600 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Save credentials trigger */}
+            <button
+              type="submit"
+              className="w-full py-3 bg-[#5A5A40] hover:bg-[#4a4a34] text-white text-[9px] uppercase font-mono font-black rounded-xl shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Save Changes</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5 p-4 pb-20 overflow-y-auto h-full select-none bg-[#FAF9F7] text-left">
       
@@ -389,19 +600,20 @@ export default function ProfileTab({
 
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
           {/* Avatar preview frame */}
-          <div className="relative shrink-0 w-24 h-24 rounded-full border-4 border-[#FAF9F7] shadow-sm overflow-hidden bg-[#EAE0D8] flex items-center justify-center">
-            <img 
-              src={profilePicture} 
-              alt="Avatar preview" 
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
-              }}
-            />
-            <span className="text-3xl font-black font-serif opacity-35 absolute pointer-events-none uppercase">
-              {name[0] || 'N'}
-            </span>
+          <div className="relative shrink-0 w-24 h-24 rounded-full border-4 border-[#FAF9F7] shadow-sm overflow-hidden bg-[#EAE0D8] flex items-center justify-center text-[#5A5A40]">
+            {profilePicture ? (
+              <img 
+                src={profilePicture} 
+                alt="Avatar preview" 
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <User className="w-12 h-12 stroke-[1.5]" />
+            )}
           </div>
 
           <div className="space-y-2 flex-1 w-full">
@@ -413,25 +625,16 @@ export default function ProfileTab({
                 {name}
               </h3>
             </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-[#FAF9F7] p-2 rounded-xl border border-[#F1EFE9]">
-                <span className="text-[6.5px] font-mono text-stone-400 uppercase tracking-wider block font-black">
-                  🎒 Persona Specialty
-                </span>
-                <span className="text-[10px] text-[#5A5A40] font-sans font-extrabold truncate block">
-                  {specialty}
-                </span>
-              </div>
-              
-              <div className="bg-[#FAF9F7] p-2 rounded-xl border border-[#F1EFE9]">
-                <span className="text-[6.5px] font-mono text-stone-400 uppercase tracking-wider block font-black">
-                  🌱 Seeding Mood
-                </span>
-                <span className="text-[10px] text-[#5A5A40] font-sans font-extrabold truncate block">
-                  {seedingMood}
-                </span>
-              </div>
+            
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setIsEditingProfile(true)}
+                className="w-full py-2 bg-stone-50 hover:bg-stone-100 border border-stone-200 text-[#5A5A40] text-[9.5px] uppercase font-mono font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+              >
+                <Settings className="w-3.5 h-3.5 text-[#5A5A40] animate-spin-slow" />
+                <span>Edit Profile Credentials</span>
+              </button>
             </div>
           </div>
         </div>
@@ -579,223 +782,6 @@ export default function ProfileTab({
             </div>
           );
         })()}
-      </div>
-
-      {/* ⚙️ COLLAPSIBLE MANAGE ACCOUNT CREDENTIALS & PICTURES */}
-      <div className="bg-white rounded-3xl border border-[#F1EFE9] overflow-hidden shadow-2xs">
-        <button
-          type="button"
-          onClick={() => setIsEditingCredentials(!isEditingCredentials)}
-          className="w-full p-4.5 flex justify-between items-center hover:bg-stone-50 transition-all text-left cursor-pointer font-sans"
-        >
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-[#5A5A40]/10 text-[#5A5A40]">
-              <Settings className="w-3.5 h-3.5" />
-            </span>
-            <div>
-              <h4 className="font-serif italic font-bold text-xs text-[#3C3836]">
-                Manage Credentials & Profile Picture
-              </h4>
-              <p className="text-[8px] font-mono text-[#8C857E] uppercase mt-0.5">
-                {isEditingCredentials ? 'Hide credentials panel' : 'Modify email, password, and avatar identity'}
-              </p>
-            </div>
-          </div>
-          {isEditingCredentials ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-        </button>
-
-        {isEditingCredentials && (
-          <div className="p-4.5 border-t border-[#F1EFE9] space-y-4 animate-slide-down bg-[#FAF9F7]/40">
-            {/* Status indicators */}
-            {error && (
-              <div className="p-2.5 bg-red-50 text-red-600 text-xs rounded-xl flex items-center gap-2 border border-red-100">
-                <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />
-                <span className="font-semibold">{error}</span>
-              </div>
-            )}
-
-            {success && (
-              <div className="p-2.5 bg-green-50 text-green-700 text-xs rounded-xl flex items-center gap-2 border border-green-100">
-                <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                <span className="font-semibold">{success}</span>
-              </div>
-            )}
-
-            {/* Visual/Audio Permission prompts */}
-            {activePermissionPrompt !== 'none' && (
-              <div className="p-3 bg-white border border-[#E7E5E4] rounded-2xl text-left space-y-2.5">
-                <div className="flex items-start gap-2">
-                  <ShieldAlert className="w-4 h-4 text-[#5A5A40] shrink-0 mt-0.5" />
-                  <div>
-                    <h5 className="text-[10px] font-serif italic font-bold text-[#3C3836]">
-                      {activePermissionPrompt === 'photos' ? 'Enable Photo Library Access' : 'Enable Device Camera Access'}
-                    </h5>
-                    <p className="text-[8px] font-mono text-stone-500 leading-normal uppercase">
-                      Enable camera access to take a profile picture for your traveler passport.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-1.5 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setActivePermissionPrompt('none')}
-                    className="px-2 py-0.5 bg-white border border-stone-200 text-stone-600 text-[8px] uppercase font-mono font-bold rounded"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={activePermissionPrompt === 'photos' ? handleGrantPhotosPermission : handleGrantCameraPermission}
-                    className="px-2 py-0.5 bg-[#5A5A40] text-white text-[8px] uppercase font-mono font-bold rounded shadow-3xs"
-                  >
-                    Authorize
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Hidden inputs */}
-            <input 
-              type="file"
-              ref={fileInputRef}
-              id="profile-upload-file-input"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Profile image uploading/snapshotting */}
-              <div className="space-y-1.5 text-left">
-                <label className="text-[8px] font-mono uppercase tracking-wider text-[#8C857E] font-black block">
-                  Update Avatar Identity
-                </label>
-                
-                <div className="flex flex-col gap-2.5 bg-white p-3 rounded-xl border border-[#F1EFE9]">
-                  <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handlePhotoUploadClick}
-                      className="flex-1 py-1.5 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-lg text-[#3C3836] text-[8px] font-mono uppercase font-black flex items-center justify-center gap-1 transition-all cursor-pointer"
-                    >
-                      <Upload className="w-3 h-3 text-stone-500" />
-                      <span>Upload Library Photo</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleCameraCaptureClick}
-                      className="flex-1 py-1.5 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-lg text-[#3C3836] text-[8px] font-mono uppercase font-black flex items-center justify-center gap-1 transition-all cursor-pointer"
-                    >
-                      <Camera className="w-3 h-3 text-stone-500" />
-                      <span>Take snapshot</span>
-                    </button>
-                  </div>
-
-                  {/* Camera stage */}
-                  {isCapturing && (
-                    <div className="text-center p-2 bg-stone-900 rounded-xl overflow-hidden relative border border-stone-800 flex flex-col items-center">
-                      <div className="absolute top-1.5 left-2 rounded bg-red-600 px-1.5 py-0.5 text-[6px] font-mono font-bold text-white uppercase tracking-wider animate-pulse flex items-center gap-0.5">
-                        <span className="w-1 h-1 rounded-full bg-white animate-ping" />
-                        <span>Live Lens</span>
-                      </div>
-                      <video 
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-40 h-40 rounded-lg object-cover bg-stone-950 border border-stone-800"
-                      />
-                      <div className="flex gap-1 mt-2">
-                        <button
-                          type="button"
-                          onClick={handleCaptureSnapshot}
-                          className="px-2 py-1 bg-white text-stone-900 hover:bg-stone-100 text-[8px] uppercase font-mono font-bold rounded flex items-center gap-1"
-                        >
-                          <Camera className="w-3 h-3 text-stone-900" />
-                          <span>Snap</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={stopCamera}
-                          className="px-2 py-1 bg-red-600 text-white hover:bg-red-700 text-[8px] uppercase font-mono font-bold rounded"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Name Field */}
-              <div className="space-y-1 text-left">
-                <label className="text-[8px] font-mono uppercase tracking-wider text-[#8C857E] font-black block">
-                  Traveler Name
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter traveler name"
-                    className="w-full p-2 text-xs rounded-xl bg-white border border-stone-200 focus:outline-none focus:ring-1 focus:ring-[#5A5A40] text-[#3C3836] font-sans font-bold"
-                  />
-                  <User className="absolute right-3 top-2.5 w-3.5 h-3.5 text-stone-400" />
-                </div>
-              </div>
-
-              {/* Email Field */}
-              <div className="space-y-1 text-left">
-                <label className="text-[8px] font-mono uppercase tracking-wider text-[#8C857E] font-black block">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nomad@wanderer.com"
-                    className="w-full p-2 text-xs rounded-xl bg-white border border-stone-200 focus:outline-none focus:ring-1 focus:ring-[#5A5A40] text-[#3C3836] font-sans font-bold"
-                  />
-                  <Mail className="absolute right-3 top-2.5 w-3.5 h-3.5 text-stone-400" />
-                </div>
-              </div>
-
-              {/* Password Field */}
-              <div className="space-y-1 text-left">
-                <label className="text-[8px] font-mono uppercase tracking-wider text-[#8C857E] font-black block">
-                  Secure Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full p-2 text-xs rounded-xl bg-white border border-stone-200 focus:outline-none focus:ring-1 focus:ring-[#5A5A40] text-[#3C3836] font-mono font-bold"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-600 cursor-pointer"
-                  >
-                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Save credentials trigger */}
-              <button
-                type="submit"
-                className="w-full py-2 bg-[#5A5A40] hover:bg-[#4a4a34] text-white text-[9px] uppercase font-mono font-black rounded-xl shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>Save credentials</span>
-              </button>
-            </form>
-          </div>
-        )}
       </div>
 
       {/* ⚠️ SYSTEM DESTRUCTION & SIGN OUT */}
