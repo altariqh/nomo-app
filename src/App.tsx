@@ -496,7 +496,7 @@ export default function App() {
 
   // Parse and fetch OpenStreetMap Nominatim city/town/country predictions
   useEffect(() => {
-    if (!newTripForm.destination || newTripForm.destination.trim().length < 2) {
+    if (!newTripForm.destination || newTripForm.destination.trim().length < 3) {
       setDestPredictions([]);
       return;
     }
@@ -511,10 +511,12 @@ export default function App() {
       console.log(`[DestinationSearch] Requesting location search from URL: ${url}`);
 
       fetch(url)
-        .then((res) => {
+        .then(async (res) => {
           console.log(`[DestinationSearch] Response status received: ${res.status}`);
           if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
+            const errText = await res.text().catch(() => 'No response body');
+            console.log(`[DestinationSearch] Error body:`, errText);
+            throw new Error(`HTTP error! status: ${res.status}. details: ${errText}`);
           }
           return res.json();
         })
@@ -543,7 +545,7 @@ export default function App() {
             {
               id: 'err-dest-conn',
               title: '⚠️ Connection Error',
-              description: 'Could not connect to location lookup. Check internet connection.',
+              description: `Could not connect: ${err.message || err}. Check internet connection.`,
               lat: 0,
               lon: 0
             }
@@ -552,7 +554,7 @@ export default function App() {
         .finally(() => {
           setDestLoading(false);
         });
-    }, 400);
+    }, 500);
 
     return () => clearTimeout(delayDebounceFn);
   }, [newTripForm.destination]);
@@ -564,7 +566,7 @@ export default function App() {
 
   // Parse and fetch OpenStreetMap Nominatim lodging predictions matching destination bias
   useEffect(() => {
-    if (!newTripForm.accommodationName || newTripForm.accommodationName.trim().length < 2) {
+    if (!newTripForm.accommodationName || newTripForm.accommodationName.trim().length < 3) {
       setAccomPredictions([]);
       return;
     }
@@ -585,10 +587,12 @@ export default function App() {
       console.log(`[AccomSearch] Requesting accommodation search from URL: ${url}`);
 
       fetch(url)
-        .then((res) => {
+        .then(async (res) => {
           console.log(`[AccomSearch] Response status received: ${res.status}`);
           if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
+            const errText = await res.text().catch(() => 'No response body');
+            console.log(`[AccomSearch] Error body:`, errText);
+            throw new Error(`HTTP error! status: ${res.status}. details: ${errText}`);
           }
           return res.json();
         })
@@ -617,7 +621,7 @@ export default function App() {
             {
               id: 'err-accom-conn',
               title: '⚠️ Connection Error',
-              description: 'Could not connect to lodging lookup. Check internet connection.',
+              description: `Could not connect: ${err.message || err}. Check internet connection.`,
               lat: 0,
               lon: 0
             }
@@ -626,7 +630,7 @@ export default function App() {
         .finally(() => {
           setAccomLoading(false);
         });
-    }, 400);
+    }, 500);
 
     return () => clearTimeout(delayDebounceFn);
   }, [newTripForm.accommodationName, newTripForm.destination, newTripForm.latitude, newTripForm.longitude]);

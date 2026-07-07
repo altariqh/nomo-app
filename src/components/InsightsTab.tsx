@@ -182,9 +182,18 @@ export default function InsightsTab({
       (position) => {
         const { latitude, longitude } = position.coords;
         const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10`;
+        console.log(`[ReverseGeocode] Requesting reverse geocoding from URL: ${url}`);
         
         fetch(url)
-          .then((res) => res.json())
+          .then(async (res) => {
+            console.log(`[ReverseGeocode] Response status received: ${res.status}`);
+            if (!res.ok) {
+              const bodyText = await res.text().catch(() => 'No response body');
+              console.log(`[ReverseGeocode] Error response body:`, bodyText);
+              throw new Error(`HTTP error! status: ${res.status}. details: ${bodyText}`);
+            }
+            return res.json();
+          })
           .then((data) => {
             const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county || 'Current Location';
             setCurrentCity(city);
@@ -194,8 +203,8 @@ export default function InsightsTab({
             triggerToast(`📍 Location found: ${city}`);
           })
           .catch((err) => {
-             console.error(err);
-             triggerToast('Failed to get location name');
+             console.error('[ReverseGeocode] error:', err.message || err);
+             triggerToast(`Failed to get location name: ${err.message || err}`);
           })
           .finally(() => {
              setSearchLoading(false);
@@ -268,7 +277,7 @@ export default function InsightsTab({
 
   // Fetch OpenStreetMap Nominatim city predictions
   useEffect(() => {
-    if (!searchQuery || searchQuery.trim().length < 2) {
+    if (!searchQuery || searchQuery.trim().length < 3) {
       setPredictions([]);
       return;
     }
@@ -276,10 +285,16 @@ export default function InsightsTab({
     const delayDebounceFn = setTimeout(() => {
       setSearchLoading(true);
       const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(searchQuery)}&limit=5`);
+      console.log(`[ScoutCitySearch] Requesting location search from URL: ${url}`);
 
       fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error('HTTP error');
+        .then(async (res) => {
+          console.log(`[ScoutCitySearch] Response status received: ${res.status}`);
+          if (!res.ok) {
+            const errText = await res.text().catch(() => 'No response body');
+            console.log(`[ScoutCitySearch] Error body:`, errText);
+            throw new Error(`HTTP error! status: ${res.status}. details: ${errText}`);
+          }
           return res.json();
         })
         .then((data) => {
@@ -302,12 +317,19 @@ export default function InsightsTab({
           }
         })
         .catch((err) => {
-          console.error('[Scout City Search]', err);
+          console.error('[ScoutCitySearch] Error:', err.message || err);
+          setPredictions([
+            {
+              id: 'err-scout-conn',
+              title: '⚠️ Connection Error',
+              description: `Could not connect: ${err.message || err}. Check internet connection.`,
+            }
+          ]);
         })
         .finally(() => {
           setSearchLoading(false);
         });
-    }, 400);
+    }, 500);
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);

@@ -22,7 +22,7 @@ export default function GooglePlacesSearch({
 
   // Search OSM Nominatim API when query changes
   useEffect(() => {
-    if (!query || query.length < 2) {
+    if (!query || query.length < 3) {
       setPredictions([]);
       return;
     }
@@ -37,10 +37,12 @@ export default function GooglePlacesSearch({
       console.log(`[GooglePlacesSearch] Requesting location search from URL: ${url}`);
       
       fetch(url)
-        .then((res) => {
+        .then(async (res) => {
           console.log(`[GooglePlacesSearch] Response status received: ${res.status}`);
           if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
+            const errText = await res.text().catch(() => 'No response body');
+            console.log(`[GooglePlacesSearch] Error body:`, errText);
+            throw new Error(`HTTP error! status: ${res.status}. details: ${errText}`);
           }
           return res.json();
         })
@@ -69,14 +71,14 @@ export default function GooglePlacesSearch({
             {
               id: 'err-places-conn',
               title: '⚠️ Connection Error',
-              description: 'Could not connect to the location service. Verify your internet and API configuration.',
+              description: `Could not connect: ${err.message || err}. Check internet and API configuration.`,
             }
           ]);
         })
         .finally(() => {
           setLoading(false);
         });
-    }, 450);
+    }, 500);
 
     return () => clearTimeout(delayDebounceFn);
   }, [query, biasDestination]);

@@ -9,7 +9,14 @@ export function getApiUrl(path: string): string {
   // The proxy (Vite or Nginx) will route it correctly in the same origin.
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   
-  // If we need to rewrite to Nominatim for location search, let the backend handle it or proxy it.
-  // Actually, our backend handles /api/places/search directly, so we just return the path.
+  // If VITE_LOCATION_API_URL is set, we use it as the base URL.
+  // This prevents relative paths like /api/* (which fail on Android/APK)
+  // or localhost from being called.
+  const baseUrl = import.meta.env.VITE_LOCATION_API_URL;
+  if (baseUrl) {
+    const trimmedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    return `${trimmedBase}${cleanPath}`;
+  }
+  
   return cleanPath;
 }
