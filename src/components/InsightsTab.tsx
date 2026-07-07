@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, RefreshCw, Star, AlertCircle, Compass, Heart, X, MapPin, Plus, Trash2, RotateCcw, Check, Navigation, ChevronLeft, ChevronRight, ZoomIn } from 'lucide-react';
 import { Trip, CommunityReview, ItineraryItem } from '../types';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
-import { getApiUrl } from '../utils/api';
+import { getApiUrl, requestGeocoding, requestReverseGeocoding } from '../utils/api';
 
 interface ScoutCardComment {
   author: string;
@@ -181,19 +181,8 @@ export default function InsightsTab({
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10`;
-        console.log(`[ReverseGeocode] Requesting reverse geocoding from URL: ${url}`);
         
-        fetch(url)
-          .then(async (res) => {
-            console.log(`[ReverseGeocode] Response status received: ${res.status}`);
-            if (!res.ok) {
-              const bodyText = await res.text().catch(() => 'No response body');
-              console.log(`[ReverseGeocode] Error response body:`, bodyText);
-              throw new Error(`HTTP error! status: ${res.status}. details: ${bodyText}`);
-            }
-            return res.json();
-          })
+        requestReverseGeocoding(latitude, longitude)
           .then((data) => {
             const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county || 'Current Location';
             setCurrentCity(city);
@@ -284,37 +273,22 @@ export default function InsightsTab({
 
     const delayDebounceFn = setTimeout(() => {
       setSearchLoading(true);
-      const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(searchQuery)}&limit=5`);
-      console.log(`[ScoutCitySearch] Requesting location search from URL: ${url}`);
 
-      fetch(url)
-        .then(async (res) => {
-          console.log(`[ScoutCitySearch] Response status received: ${res.status}`);
-          if (!res.ok) {
-            const errText = await res.text().catch(() => 'No response body');
-            console.log(`[ScoutCitySearch] Error body:`, errText);
-            throw new Error(`HTTP error! status: ${res.status}. details: ${errText}`);
-          }
-          return res.json();
-        })
+      requestGeocoding({ query: searchQuery, limit: 5 })
         .then((data) => {
-          if (Array.isArray(data)) {
-            const parsed = data.map((item: any, index: number) => {
-              const parts = item.display_name.split(',');
-              const title = parts[0]?.trim() || 'Unknown Place';
-              const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
-              return {
-                id: `scout-search-${item.place_id || 'osm'}-${index}`,
-                title: title,
-                description: description || 'Scenic location',
-                lat: item.lat ? parseFloat(item.lat) : undefined,
-                lon: item.lon ? parseFloat(item.lon) : undefined
-              };
-            });
-            setPredictions(parsed);
-          } else {
-            setPredictions([]);
-          }
+          const parsed = data.map((item: any, index: number) => {
+            const parts = item.display_name.split(',');
+            const title = parts[0]?.trim() || 'Unknown Place';
+            const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
+            return {
+              id: `scout-search-${item.place_id || 'osm'}-${index}`,
+              title: title,
+              description: description || 'Scenic location',
+              lat: item.lat ? parseFloat(item.lat) : undefined,
+              lon: item.lon ? parseFloat(item.lon) : undefined
+            };
+          });
+          setPredictions(parsed);
         })
         .catch((err) => {
           console.error('[ScoutCitySearch] Error:', err.message || err);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, MapPin, Globe } from 'lucide-react';
-import { getApiUrl } from '../utils/api';
+import { requestGeocoding } from '../utils/api';
 
 interface GooglePlacesSearchProps {
   onPlaceSelect: (place: { title: string; description: string; estimatedCost?: number; lat?: number; lon?: number }) => void;
@@ -33,40 +33,24 @@ export default function GooglePlacesSearch({
       // Combine with location bias country/city to prioritize local travel targets
       const searchQuery = biasDestination ? `${query}, ${biasDestination}` : query;
       
-      const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(searchQuery)}&limit=8`);
-      console.log(`[GooglePlacesSearch] Requesting location search from URL: ${url}`);
-      
-      fetch(url)
-        .then(async (res) => {
-          console.log(`[GooglePlacesSearch] Response status received: ${res.status}`);
-          if (!res.ok) {
-            const errText = await res.text().catch(() => 'No response body');
-            console.log(`[GooglePlacesSearch] Error body:`, errText);
-            throw new Error(`HTTP error! status: ${res.status}. details: ${errText}`);
-          }
-          return res.json();
-        })
+      requestGeocoding({ query: searchQuery, limit: 8 })
         .then((data) => {
-          if (Array.isArray(data)) {
-            const parsed = data.map((item: any, index: number) => {
-              const parts = item.display_name.split(',');
-              const title = parts[0]?.trim() || 'Unknown Attraction';
-              const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
-              return {
-                id: `${item.place_id || 'osm'}-${index}`,
-                title: title,
-                description: description || 'Scenic location',
-                lat: item.lat ? parseFloat(item.lat) : undefined,
-                lon: item.lon ? parseFloat(item.lon) : undefined
-              };
-            });
-            setPredictions(parsed);
-          } else {
-            setPredictions([]);
-          }
+          const parsed = data.map((item: any, index: number) => {
+            const parts = item.display_name.split(',');
+            const title = parts[0]?.trim() || 'Unknown Attraction';
+            const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
+            return {
+              id: `${item.place_id || 'osm'}-${index}`,
+              title: title,
+              description: description || 'Scenic location',
+              lat: item.lat ? parseFloat(item.lat) : undefined,
+              lon: item.lon ? parseFloat(item.lon) : undefined
+            };
+          });
+          setPredictions(parsed);
         })
         .catch((err) => {
-          console.error("[GooglePlacesSearch] Error searching via geocoding proxy:", err.message || err);
+          console.error("[GooglePlacesSearch] Error searching via geocoding:", err.message || err);
           setPredictions([
             {
               id: 'err-places-conn',

@@ -49,7 +49,7 @@ import JournalTab from './components/JournalTab';
 import LedgerTab from './components/LedgerTab';
 import InsightsTab from './components/InsightsTab';
 import GooglePlacesSearch from './components/GooglePlacesSearch';
-import { getApiUrl } from './utils/api';
+import { getApiUrl, requestGeocoding } from './utils/api';
 import { getCityTheme } from './utils/cityThemes';
 import { generatePresetItinerary } from './utils/itineraryPresets';
 
@@ -507,40 +507,25 @@ export default function App() {
       if (isExactMatch) return;
 
       setDestLoading(true);
-      const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(newTripForm.destination)}&limit=5`);
-      console.log(`[DestinationSearch] Requesting location search from URL: ${url}`);
 
-      fetch(url)
-        .then(async (res) => {
-          console.log(`[DestinationSearch] Response status received: ${res.status}`);
-          if (!res.ok) {
-            const errText = await res.text().catch(() => 'No response body');
-            console.log(`[DestinationSearch] Error body:`, errText);
-            throw new Error(`HTTP error! status: ${res.status}. details: ${errText}`);
-          }
-          return res.json();
-        })
+      requestGeocoding({ query: newTripForm.destination, limit: 5 })
         .then((data) => {
-          if (Array.isArray(data)) {
-            const parsed = data.map((item: any, index: number) => {
-              const parts = item.display_name.split(',');
-              const title = parts[0]?.trim() || 'Unknown';
-              const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
-              return {
-                id: `${item.place_id || 'osm'}-${index}`,
-                title: title,
-                description: description || 'Scenic location',
-                lat: parseFloat(item.lat),
-                lon: parseFloat(item.lon)
-              };
-            });
-            setDestPredictions(parsed);
-          } else {
-            setDestPredictions([]);
-          }
+          const parsed = data.map((item: any, index: number) => {
+            const parts = item.display_name.split(',');
+            const title = parts[0]?.trim() || 'Unknown';
+            const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
+            return {
+              id: `${item.place_id || 'osm'}-${index}`,
+              title: title,
+              description: description || 'Scenic location',
+              lat: parseFloat(item.lat),
+              lon: parseFloat(item.lon)
+            };
+          });
+          setDestPredictions(parsed);
         })
         .catch((err) => {
-          console.error("[DestinationSearch] Error searching via geocoding proxy:", err.message || err);
+          console.error("[DestinationSearch] Error searching via geocoding:", err.message || err);
           setDestPredictions([
             {
               id: 'err-dest-conn',
@@ -580,43 +565,29 @@ export default function App() {
         ? `${newTripForm.accommodationName}, ${newTripForm.destination.split(',')[0]}`
         : newTripForm.accommodationName;
 
-      const latParam = newTripForm.latitude ? `&lat=${encodeURIComponent(newTripForm.latitude)}` : '';
-      const lonParam = newTripForm.longitude ? `&lon=${encodeURIComponent(newTripForm.longitude)}` : '';
-
-      const url = getApiUrl(`/api/places/search?q=${encodeURIComponent(query)}${latParam}${lonParam}&limit=5`);
-      console.log(`[AccomSearch] Requesting accommodation search from URL: ${url}`);
-
-      fetch(url)
-        .then(async (res) => {
-          console.log(`[AccomSearch] Response status received: ${res.status}`);
-          if (!res.ok) {
-            const errText = await res.text().catch(() => 'No response body');
-            console.log(`[AccomSearch] Error body:`, errText);
-            throw new Error(`HTTP error! status: ${res.status}. details: ${errText}`);
-          }
-          return res.json();
-        })
+      requestGeocoding({
+        query: query,
+        limit: 5,
+        lat: newTripForm.latitude || undefined,
+        lon: newTripForm.longitude || undefined
+      })
         .then((data) => {
-          if (Array.isArray(data)) {
-            const parsed = data.map((item: any, index: number) => {
-              const parts = item.display_name.split(',');
-              const title = parts[0]?.trim() || 'Unknown Place';
-              const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
-              return {
-                id: `accom-${item.place_id || 'osm'}-${index}`,
-                title: title,
-                description: description || 'Local Lodge/Hotel',
-                lat: parseFloat(item.lat),
-                lon: parseFloat(item.lon)
-              };
-            });
-            setAccomPredictions(parsed);
-          } else {
-            setAccomPredictions([]);
-          }
+          const parsed = data.map((item: any, index: number) => {
+            const parts = item.display_name.split(',');
+            const title = parts[0]?.trim() || 'Unknown Place';
+            const description = parts.slice(1).map((p: any) => p.trim()).join(', ');
+            return {
+              id: `accom-${item.place_id || 'osm'}-${index}`,
+              title: title,
+              description: description || 'Local Lodge/Hotel',
+              lat: parseFloat(item.lat),
+              lon: parseFloat(item.lon)
+            };
+          });
+          setAccomPredictions(parsed);
         })
         .catch((err) => {
-          console.error("[AccomSearch] Error searching lodging via proxy:", err.message || err);
+          console.error("[AccomSearch] Error searching lodging:", err.message || err);
           setAccomPredictions([
             {
               id: 'err-accom-conn',
